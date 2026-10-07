@@ -1,0 +1,203 @@
+{
+  "name": "Clínica Dental · Dem",
+  "timezone": "America/Argentina/Buenos_Aires",
+  "utcOffset": "-03:00",
+  "address": "Dirección pendiente de configurar",
+  "hours": {
+    "1": [
+      9,
+      18
+    ],
+    "2": [
+      9,
+      18
+    ],
+    "3": [
+      9,
+      18
+    ],
+    "4": [
+      9,
+      18
+    ],
+    "5": [
+      9,
+      18
+    ]
+  },
+  "bufferMinutes": 15,
+  "professionals": [
+    "Profesional 1"
+  ],
+  "services": [
+    {
+      "id": "consulta",
+      "name": "Consulta de evaluación",
+      "minutes": 30,
+      "price": "A confirmar con recepción"
+    },
+    {
+      "id": "limpieza",
+      "name": "Limpieza dental",
+      "minutes": 45,
+      "price": "A confirmar con recepción"
+    },
+    {
+      "id": "ortodoncia",
+      "name": "Consulta de ortodoncia",
+      "minutes": 45,
+      "price": "A confirmar con recepción"
+    }
+  ],
+  "faqs": [
+    {
+      "question": "¿Cuáles son los horarios?",
+      "keywords": [
+        "horario",
+        "abren",
+        "abierto"
+      ],
+      "source": "hours",
+      "answer": "Horarios de atención (hora de Argentina):\nLunes: 09:00 a 18:00\nMartes: 09:00 a 18:00\nMiércoles: 09:00 a 18:00\nJueves: 09:00 a 18:00\nViernes: 09:00 a 18:00"
+    },
+    {
+      "question": "¿Dónde están?",
+      "keywords": [
+        "direccion",
+        "ubicacion",
+        "donde",
+        "llegar"
+      ],
+      "source": "address",
+      "answer": "Nos encontrás en Dirección pendiente de configurar."
+    },
+    {
+      "question": "¿Cuánto cuesta?",
+      "keywords": [
+        "precio",
+        "cuanto",
+        "costo",
+        "sale"
+      ],
+      "source": "prices",
+      "answer": "Precios e información de los servicios:\n• Consulta de evaluación: A confirmar con recepción\n• Limpieza dental: A confirmar con recepción\n• Consulta de ortodoncia: A confirmar con recepción"
+    },
+    {
+      "question": "¿Qué servicios ofrecen?",
+      "keywords": [
+        "servicios",
+        "tratamientos"
+      ],
+      "source": "services",
+      "answer": "Servicios de la clínica:\n• Consulta de evaluación\n• Limpieza dental\n• Consulta de ortodoncia"
+    },
+    {
+      "question": "¿Aceptan obra social?",
+      "keywords": [
+        "obra social",
+        "prepaga",
+        "cobertura"
+      ],
+      "source": "custom",
+      "answer": "Necesitamos confirmar tu cobertura con recepción. No puedo garantizar autorizaciones ni reintegros."
+    },
+    {
+      "question": "¿Cómo puedo pagar?",
+      "keywords": [
+        "pago",
+        "tarjeta",
+        "transferencia",
+        "efectivo"
+      ],
+      "source": "custom",
+      "answer": "Los medios de pago están pendientes de configurar. Consultá con recepción antes de tu visita."
+    },
+    {
+      "question": "¿Atienden niños?",
+      "keywords": [
+        "ninos",
+        "pediatr",
+        "hijo"
+      ],
+      "source": "custom",
+      "answer": "Recepción debe confirmar la disponibilidad de odontopediatría y las edades atendidas."
+    },
+    {
+      "question": "¿Hacen blanqueamiento?",
+      "keywords": [
+        "blanqueamiento"
+      ],
+      "source": "custom",
+      "answer": "Recepción puede confirmar si se ofrece ese tratamiento. Su indicación requiere evaluación profesional."
+    },
+    {
+      "question": "¿Colocan implantes?",
+      "keywords": [
+        "implante"
+      ],
+      "source": "custom",
+      "answer": "Consultá con recepción por evaluación de implantes. No puedo indicar tratamientos ni presupuestos clínicos."
+    },
+    {
+      "question": "¿Cuánto dura el turno?",
+      "keywords": [
+        "duracion",
+        "dura",
+        "demora"
+      ],
+      "source": "duration",
+      "answer": "Duración de los turnos:\n• Consulta de evaluación: 30 minutos\n• Limpieza dental: 45 minutos\n• Consulta de ortodoncia: 45 minutos"
+    },
+    {
+      "question": "¿Cómo cancelo?",
+      "keywords": [
+        "politica"
+      ],
+      "source": "custom",
+      "answer": "Escribí cancelar para gestionar tu turno. La clínica todavía debe configurar su política de cancelación."
+    },
+    {
+      "question": "¿Debo llevar estudios?",
+      "keywords": [
+        "estudios",
+        "radiografia",
+        "llevar"
+      ],
+      "source": "custom",
+      "answer": "Recepción te indicará qué documentación llevar. No envíes estudios ni datos médicos por este chat."
+    },
+    {
+      "question": "¿Tienen estacionamiento?",
+      "keywords": [
+        "estacionamiento",
+        "estacionar"
+      ],
+      "source": "custom",
+      "answer": "Ese dato está pendiente de confirmar con recepción."
+    },
+    {
+      "question": "¿Hay acceso para movilidad reducida?",
+      "keywords": [
+        "accesibilidad",
+        "silla de ruedas",
+        "movilidad"
+      ],
+      "source": "custom",
+      "answer": "Recepción puede confirmar las condiciones de acceso antes de tu visita."
+    },
+    {
+      "question": "¿Cómo hablo con una persona?",
+      "keywords": [
+        "recepcion",
+        "persona",
+        "humano"
+      ],
+      "source": "custom",
+      "answer": "Escribí humano y dejaré la conversación en manos de recepción."
+    }
+  ],
+  "bot": {
+    "welcome": "Hola, soy el asistente de {nombre_clinica}. Puedo ayudarte con consultas y turnos. Guardamos nombre, teléfono y turno para gestionar tu reserva. No compartas información médica. Podés solicitar a recepción acceso o eliminación de tus datos.",
+    "fallback": "No tengo una respuesta verificada para esa consulta. ¿Querés hablar con recepción?"
+  }
+}

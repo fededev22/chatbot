@@ -1,0 +1,14 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+const env=process.env,url=new URL(process.argv[2]);
+if(url.protocol!=='https:'||!url.hostname.endsWith('.trycloudflare.com')||url.pathname!=='/webhook'||url.search||url.hash||url.username||url.password) throw Error('Usá la URL HTTPS del webhook de prueba.');
+if(!env.META_APP_ID||!env.META_APP_SECRET||!env.WEBHOOK_VERIFY_TOKEN) throw Error('Faltan credenciales privadas de la app.');
+const target=`https://graph.facebook.com/v26.0/${env.META_APP_ID}/subscriptions`,headers={authorization:`Bearer ${env.META_APP_ID}|${env.META_APP_SECRET}`};
+const response=await fetch(target,{method:'POST',headers,body:new URLSearchParams({object:'whatsapp_business_account',callback_url:url.href,verify_token:env.WEBHOOK_VERIFY_TOKEN,fields:'messages'}),signal:AbortSignal.timeout(25000)});
+const result=await response.json();
+if(!response.ok||!result.success) throw Error(`Meta rechazó el webhook: HTTP ${response.status}, código ${result.error?.code||'desconocido'}.`);
+const check=await fetch(target,{headers,signal:AbortSignal.timeout(15000)}),data=await check.json();
+const subscription=data.data?.find(s=>s.object==='whatsapp_business_account');
+if(!check.ok||subscription?.callback_url!==url.href||!subscription.active||!subscription.fields?.some(f=>f.name==='messages')) throw Error('Meta todavía no confirma el callback y el campo messages.');
+const path=new URL('../.env',import.meta.url),text=readFileSync(path,'utf8');
+writeFileSync(path,/^WEBHOOK_PUBLIC_URL=/m.test(text)?text.replace(/^WEBHOOK_PUBLIC_URL=.*$/m,'WEBHOOK_PUBLIC_URL='+url.href):text+'\nWEBHOOK_PUBLIC_URL='+url.href+'\n');
+console.log('Meta verificó el webhook y mantiene la suscripción a mensajes. Configuración privada actualizada.');

@@ -1,0 +1,21 @@
+{
+  "name": "dental-chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "restart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/restart-server.ps1",
+    "tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-tunnel.ps1",
+    "webhook": "node --env-file-if-exists=.env webhook-gateway.mjs",
+    "webhook:register": "node --env-file-if-exists=.env scripts/register-webhook.mjs",
+    "check:connection": "node --env-file-if-exists=.env scripts/check-connection.mjs",
+    "meta:status": "node --env-file-if-exists=.env scripts/meta-status.mjs",
+    "test": "node --test test/*.test.mjs",
+    "webhook:background": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-gateway.ps1",
+    "sync:github": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1"
+  }
+}
