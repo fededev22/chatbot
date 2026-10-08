@@ -8,15 +8,13 @@ import {dashboardData,conversationData,markRead,humanAction,recordDelivery,accep
 import {checkWhatsAppConnection} from './connection.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {createAuth,authError} from './auth.mjs';
-import {createAISettings,createTestChat} from './ai.mjs';
+import {createAISettings} from './ai.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 mkdirSync(`${root}data`,{recursive:true});
 let config=validateConfig(JSON.parse(readFileSync(`${root}business.json`,'utf8')));
 let configUpdatedAt=statSync(`${root}business.json`).mtime.toISOString();
 const engine=createEngine(`${root}data/clinic.sqlite`,()=>config);
 const aiSettings=createAISettings(`${root}data/ai.json`);
-const simulator=createEngine(`${root}data/simulator.sqlite`,()=>config);
-const testChat=createTestChat(simulator,()=>config,aiSettings);
 const env=process.env, host=env.HOST||'127.0.0.1', port=Number(env.PORT||3000);
 const localHost=['127.0.0.1','localhost','::1'].includes(host);
 if(!localHost&&(!env.PANEL_ORIGIN?.startsWith('https://')||!env.ADMIN_TOKEN))throw Error('El panel remoto requiere PANEL_ORIGIN HTTPS y clave privada de instalación.');
@@ -88,7 +86,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&url.pathname==='/api/ai')return json(res,200,aiSettings.status());
     if(req.method==='POST'&&url.pathname==='/api/ai'){
       if(access.user.role!=='owner')throw authError('Esta acción requiere la cuenta administradora.',403);
-      return json(res,200,aiSettings.save(parseJSON(await body(req))));
+      return json(res,200,aiSettings.save({...parseJSON(await body(req)),enabled:false}));
     }
     if(req.method==='POST'&&url.pathname==='/api/accounts/invite')return json(res,200,auth.invite(access.user,parseJSON(await body(req))));
     if(req.method==='POST'&&url.pathname==='/api/accounts/cancel'){auth.revokeInvite(access.user,parseJSON(await body(req)).email);return json(res,200,{ok:true});}
@@ -103,11 +101,6 @@ const server=http.createServer(async(req,res)=>{
       const data=parseJSON(await body(req));markRead(engine,data.session,data.messageId);
       return json(res,200,{ok:true});
     }
-    if(req.method==='POST'&&url.pathname==='/api/chat') {
-      const data=parseJSON(await body(req));
-      if(typeof data.session!=='string'||!/^demo:[a-zA-Z0-9_-]{1,80}$/.test(data.session)) throw Error('Sesión inválida.');
-      return json(res,200,await testChat.handle(data.session,data.text,data.synthetic===true));
-    }
     if(req.method==='POST'&&url.pathname==='/api/config') {
       const next=validateConfig(parseJSON(await body(req)));
       const upcoming=engine.query("SELECT * FROM appointments WHERE status='confirmed' AND start>?",new Date().toISOString());
@@ -118,6 +111,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&url.pathname==='/api/human') {
       const data=parseJSON(await body(req));
+      if(!['pause','resume'].includes(data.action))throw authError('El panel permite seguir las conversaciones y pausar o reactivar el bot; no envía mensajes.',403);
       humanAction(engine,data,waEnabled);
       return json(res,200,{ok:true});
     }

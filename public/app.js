@@ -6,7 +6,7 @@ const $=id=>document.getElementById(id);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const legacyKey=sessionStorage.getItem('admin-token')||'';
 let token=false,csrf='',accountAccess,dashboard,selected=null,filter='all',refreshing=false,authEpoch=0,detailVersion=0,history=[],hasMore=false,historySignature='',acting=false;
-const drafts=new Map(),readIds=new Map();
+const readIds=new Map();
 const labels={confirmed:'Confirmado',cancelled:'Cancelado',rescheduled:'Reprogramado',cancelled_send:'Descartado',pending:'En cola',sent:'Aceptado por WhatsApp',delivered:'Entregado',read:'Leído',failed:'Falló el envío',blocked_window:'Fuera de las 24 horas',blocked_template:'Falta plantilla',obsolete:'Recordatorio descartado',diagnosing:'Comprobando envío'};
 const date=s=>new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'medium',timeStyle:'short'}).format(new Date(s));
 const time=s=>new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',hour:'2-digit',minute:'2-digit'}).format(new Date(s));
@@ -15,10 +15,10 @@ const notice=text=>$('notice').textContent=text;
 const aiControl=createAIControl({api,onNotice:notice});
 const settingsEditor=createSettingsEditor({onSave:async next=>{const result=await api('config',next);if(dashboard){dashboard.config=result.config;dashboard.configUpdatedAt=result.updatedAt;}await refresh();notice('Información del bot guardada.');return result;},onNotice:notice,onModeChange:editing=>{if(!$('settings').classList.contains('hidden')){$('title').textContent=editing?'Editar información del bot':'Información del bot';$('subtitle').textContent=editing?'Modificá los datos y guardá los cambios.':'Datos guardados que el asistente usa en WhatsApp.';}}});
 function lock(error='') {
-  authEpoch++;detailVersion++;token=false;csrf='';dashboard=undefined;selected=null;history=[];drafts.clear();readIds.clear();
+  authEpoch++;detailVersion++;token=false;csrf='';dashboard=undefined;selected=null;history=[];readIds.clear();
   accountAccess?.clear();aiControl.clear();$('app').classList.add('hidden');$('login').classList.remove('hidden');$('login-error').textContent=error;
   for(const id of ['conversation-list','chat-log','appointment-rows','faq-list','delivery-list','patient-appointments'])$(id).replaceChildren();
-  settingsEditor.clear();delete $('faq-list').dataset.signature;$('reply').value='';$('contact-name').textContent='';$('contact-phone').textContent='';$('access-password').value='';
+  settingsEditor.clear();delete $('faq-list').dataset.signature;$('contact-name').textContent='';$('contact-phone').textContent='';$('access-password').value='';
 }
 async function api(path,data) {
   const epoch=authEpoch;
@@ -28,10 +28,10 @@ async function api(path,data) {
 }
 function show(view) {
   if(view==='accounts')void accountAccess.refreshAccounts();
-  if(view==='test-bot')void aiControl.refresh();
+  if(view==='settings')void aiControl.refresh();
   document.querySelectorAll('.view').forEach(n=>n.classList.toggle('hidden',n.id!==view));document.querySelectorAll('.nav').forEach(n=>{n.classList.toggle('active',n.dataset.view===view);n.setAttribute('aria-current',n.dataset.view===view?'page':'false');});
-  $('title').textContent={inbox:'Conversaciones',appointments:'Agenda de turnos',knowledge:'Respuestas del bot',settings:settingsEditor.isEditing()?'Editar información del bot':'Información del bot',accounts:'Cuentas del equipo','test-bot':'Probá el asistente'}[view];
-  $('subtitle').textContent={inbox:'Seguí la atención de tus pacientes en WhatsApp.',appointments:'Reservas, cambios y confirmaciones de tus pacientes.',knowledge:'Información que la clínica comparte por WhatsApp.',settings:settingsEditor.isEditing()?'Modificá los datos y guardá los cambios.':'Datos guardados que el asistente usa en WhatsApp.',accounts:'Administrá los accesos al panel del negocio.','test-bot':'Conversá con datos ficticios; la agenda de pacientes queda separada.'}[view];
+  $('title').textContent={inbox:'Conversaciones',appointments:'Agenda de turnos',knowledge:'Respuestas del bot',settings:settingsEditor.isEditing()?'Editar información del bot':'Información del bot',accounts:'Cuentas del equipo'}[view];
+  $('subtitle').textContent={inbox:'Seguí la atención de tus pacientes en WhatsApp.',appointments:'Reservas, cambios y confirmaciones de tus pacientes.',knowledge:'Información que la clínica comparte por WhatsApp.',settings:settingsEditor.isEditing()?'Modificá los datos y guardá los cambios.':'Datos guardados que el asistente usa en WhatsApp.',accounts:'Administrá los accesos al panel del negocio.'}[view];
 }
 function renderList() {
   if(!dashboard)return;const query=$('search').value.trim().toLocaleLowerCase('es');
@@ -45,16 +45,14 @@ function renderList() {
   $('list-count').textContent=`${sessions.length} visibles · ${dashboard.metrics.conversations} en total${dashboard.metrics.conversations>dashboard.limit?' · últimas 100 conversaciones':''}`;
 }
 async function selectConversation(id) {
-  if(selected)drafts.set(selected,$('reply').value);if(selected!==id){selected=id;detailVersion++;history=[];historySignature='';$('chat-log').replaceChildren();$('reply').value=drafts.get(id)||'';$('activity').open=false;}
+  if(selected!==id){selected=id;detailVersion++;history=[];historySignature='';$('chat-log').replaceChildren();$('activity').open=false;}
   $('inbox').classList.add('detail-open');renderList();renderContact();try{await refreshDetail();}catch(e){if(token)notice(e.message);}
 }
 function renderContact() {
   const s=dashboard?.sessions.find(s=>s.id===selected);$('no-selection').classList.toggle('hidden',!!s);$('selected-detail').classList.toggle('hidden',!s);if(!s)return;
   $('contact-name').textContent=s.name;$('contact-phone').textContent=`+${s.phone} · WhatsApp`;$('contact-avatar').textContent=s.name.startsWith('+')?'P':s.name.slice(0,1).toUpperCase();$('contact-stage').textContent=s.stage;$('contact-stage').className=`state ${s.status}`;
-  $('booking-progress').textContent=[s.state.service?service(s.state.service):'',s.state.day,s.state.time].filter(Boolean).join(' · ');$('takeover').textContent=s.state.paused?'Reactivar bot':'Tomar atención';$('takeover').disabled=acting;
-  const lastPatient=history.filter(m=>m.role==='user').at(-1),openWindow=lastPatient&&Date.now()-new Date(lastPatient.at)<24*3600000,canReply=s.state.paused&&dashboard.whatsapp&&openWindow&&!acting;
-  $('reply').disabled=!canReply;$('send').disabled=!canReply;$('reply').placeholder=s.state.paused?'Escribí una respuesta de recepción…':'Tomá la atención para responder…';
-  $('reply-hint').textContent=!dashboard.whatsapp?'WhatsApp no está configurado.':!openWindow?'Para responder, el paciente debe haber escrito en las últimas 24 horas.':s.state.paused?'Recepción está atendiendo. El bot permanece pausado.':'El asistente está atendiendo. Tomá la conversación para responder.';
+  $('booking-progress').textContent=[s.state.service?service(s.state.service):'',s.state.day,s.state.time].filter(Boolean).join(' · ');$('takeover').textContent=s.state.paused?'Reactivar bot':'Pausar bot';$('takeover').disabled=acting;
+  $('tracking-note').textContent=s.state.paused?'El bot está pausado. Gestioná el contacto con el paciente por el canal de recepción de la clínica.':'Historial de seguimiento. Los pacientes conversan con el asistente por WhatsApp.';
 }
 function renderHistory() {
   const signature=JSON.stringify(history)+hasMore;if(signature===historySignature)return;const log=$('chat-log'),bottom=log.scrollHeight-log.scrollTop-log.clientHeight<70,first=historySignature==='',oldHeight=log.scrollHeight,oldTop=log.scrollTop;log.replaceChildren();
@@ -98,8 +96,6 @@ async function refresh() {
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{show(b.dataset.view);if(b.dataset.view==='inbox')refreshDetail().catch(e=>notice(e.message));});
 document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(n=>n.classList.toggle('active',n===b));renderList();});$('search').oninput=renderList;$('back-list').onclick=()=>$('inbox').classList.remove('detail-open');
 $('takeover').onclick=async()=>{if(acting||!selected)return;acting=true;renderContact();try{await api('human',{session:selected,action:dashboard.sessions.find(s=>s.id===selected).state.paused?'resume':'pause'});await refresh();notice('Estado de atención actualizado.');}catch(e){notice(e.message);}finally{acting=false;renderContact();}};
-$('reply').oninput=()=>drafts.set(selected,$('reply').value);
-$('reply-form').onsubmit=async e=>{e.preventDefault();if(acting||!selected)return;acting=true;renderContact();const id=selected,text=$('reply').value;try{await api('human',{session:id,action:'reply',text});drafts.delete(id);if(selected===id)$('reply').value='';await refresh();notice('Respuesta en cola de envío a WhatsApp.');}catch(err){notice(err.message);}finally{acting=false;renderContact();}};
 accountAccess=createAccountAccess({legacyKey,api,onNotice:notice,onLocked:lock,onAuthenticated:async result=>{authEpoch++;token=true;csrf=result.csrf;accountAccess.setUser(result.user);aiControl.setUser(result.user);show('inbox');await refresh();}});
 $('logout').onclick=$('mobile-logout').onclick=()=>accountAccess.logout();$('refresh').onclick=()=>{notice('');refresh();};
 $('export').onclick=()=>{const fields=['id','name','phone','service','professional','start','status'],cell=x=>'"'+String(x??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"',csv='\uFEFF'+[fields,...dashboard.appointments.map(a=>fields.map(f=>a[f]))].map(row=>row.map(cell).join(',')).join('\r\n'),url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=el('a');a.href=url;a.download='turnos-whatsapp.csv';a.click();URL.revokeObjectURL(url);};

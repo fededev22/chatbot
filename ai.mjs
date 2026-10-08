@@ -4,7 +4,7 @@ import {safeMessage} from './core.mjs';
 const providers={nvidia:{url:'https://integrate.api.nvidia.com/v1/chat/completions',model:'meta/llama-3.1-8b-instruct'},openrouter:{url:'https://openrouter.ai/api/v1/chat/completions',model:'openrouter/free'}};
 export function createAISettings(path) {
   let value=existsSync(path)?JSON.parse(readFileSync(path,'utf8')):{provider:'nvidia',model:providers.nvidia.model,key:'',enabled:false};
-  const status=()=>({provider:value.provider,model:value.model,enabled:value.enabled,configured:!!value.key,mode:'test',note:'IA solo en el simulador con datos ficticios. WhatsApp utiliza el motor local.'});
+  const status=()=>({provider:value.provider,model:value.model,enabled:false,configured:!!value.key,mode:'configuration',note:'Credenciales del proveedor guardadas para configuración. La IA externa todavía no está conectada a WhatsApp; el bot usa el motor local.'});
   function save(data) {
     if(!data||!Object.hasOwn(providers,data.provider)||typeof data.enabled!=='boolean'||typeof data.model!=='string'||!/^[a-zA-Z0-9_./:-]{1,150}$/.test(data.model)||typeof data.key!=='string')throw Error('Revisá proveedor, modelo y clave de IA.');
     const key=data.key.trim()||(data.provider===value.provider?value.key:'');

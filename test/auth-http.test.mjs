@@ -36,7 +36,8 @@ for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}:
     assert.equal((await call('/api/ai')).status,200);
     const aiConfig={provider:'nvidia',model:'test/model',enabled:false,key:'synthetic-test-key-never-a-real-credential'};
     const savedAI=await call('/api/ai',aiConfig);assert.equal(savedAI.status,200);assert.ok(!(await savedAI.text()).includes(aiConfig.key));
-    const testReply=await call('/api/chat',{session:'demo:isolated',text:'quiero una limpieza mañana a las 10',synthetic:true});assert.equal(testReply.status,200);
+    const testReply=await call('/api/chat',{session:'demo:isolated',text:'quiero una limpieza mañana a las 10',synthetic:true});assert.equal(testReply.status,404);
+    assert.equal((await call('/api/human',{session:'wa:5491112345678',action:'reply',text:'Mensaje que no debe enviarse'})).status,403);
     assert.ok(!(await (await call('/api/dashboard')).text()).includes('demo:isolated'));
     const invite=await (await call('/api/accounts/invite',{email:'staff@example.test',phone:'+5491112345679'})).json();
     const oldCookie=cookie,oldCsrf=csrf;cookie='';csrf='';const accepted=await call('/api/auth/accept',{invite:invite.token,password,...await captcha()});assert.equal(accepted.status,200);installSession(accepted,await accepted.json());assert.equal((await call('/api/accounts')).status,403);assert.equal((await call('/api/accounts/invite',{email:'third@example.test',phone:'+5491112345680'})).status,403);
