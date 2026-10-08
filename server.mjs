@@ -8,13 +8,11 @@ import {dashboardData,conversationData,markRead,humanAction,recordDelivery,accep
 import {checkWhatsAppConnection} from './connection.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {createAuth,authError} from './auth.mjs';
-import {createAISettings} from './ai.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 mkdirSync(`${root}data`,{recursive:true});
 let config=validateConfig(JSON.parse(readFileSync(`${root}business.json`,'utf8')));
 let configUpdatedAt=statSync(`${root}business.json`).mtime.toISOString();
 const engine=createEngine(`${root}data/clinic.sqlite`,()=>config);
-const aiSettings=createAISettings(`${root}data/ai.json`);
 const env=process.env, host=env.HOST||'127.0.0.1', port=Number(env.PORT||3000);
 const localHost=['127.0.0.1','localhost','::1'].includes(host);
 if(!localHost&&(!env.PANEL_ORIGIN?.startsWith('https://')||!env.ADMIN_TOKEN))throw Error('El panel remoto requiere PANEL_ORIGIN HTTPS y clave privada de instalación.');
@@ -83,11 +81,6 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&url.pathname==='/api/auth/logout'){auth.logout(sessionKey);sessionCookie(res,'');return json(res,200,{ok:true});}
     if(req.method==='POST'&&url.pathname==='/api/auth/activity'){auth.activity(sessionKey);return json(res,200,{ok:true});}
     if(req.method==='GET'&&url.pathname==='/api/accounts')return json(res,200,auth.list(access.user));
-    if(req.method==='GET'&&url.pathname==='/api/ai')return json(res,200,aiSettings.status());
-    if(req.method==='POST'&&url.pathname==='/api/ai'){
-      if(access.user.role!=='owner')throw authError('Esta acción requiere la cuenta administradora.',403);
-      return json(res,200,aiSettings.save({...parseJSON(await body(req)),enabled:false}));
-    }
     if(req.method==='POST'&&url.pathname==='/api/accounts/invite')return json(res,200,auth.invite(access.user,parseJSON(await body(req))));
     if(req.method==='POST'&&url.pathname==='/api/accounts/cancel'){auth.revokeInvite(access.user,parseJSON(await body(req)).email);return json(res,200,{ok:true});}
     if(req.method==='POST'&&url.pathname==='/api/accounts/status'){const data=parseJSON(await body(req));auth.status(access.user,data.id,data.disabled);return json(res,200,{ok:true});}
@@ -115,7 +108,7 @@ const server=http.createServer(async(req,res)=>{
       humanAction(engine,data,waEnabled);
       return json(res,200,{ok:true});
     }
-    const files={'/':'index.html','/app.js':'app.js','/accounts.js':'accounts.js','/settings.js':'settings.js','/ai-panel.js':'ai-panel.js','/bot-info.js':'../bot-info.mjs','/style.css':'style.css','/favicon.svg':'favicon.svg'};
+    const files={'/':'index.html','/app.js':'app.js','/accounts.js':'accounts.js','/settings.js':'settings.js','/bot-info.js':'../bot-info.mjs','/style.css':'style.css','/favicon.svg':'favicon.svg'};
     if(req.method==='GET'&&files[url.pathname]){res.writeHead(200,{'Content-Type':url.pathname.endsWith('.svg')?'image/svg+xml':url.pathname.endsWith('.css')?'text/css':url.pathname.endsWith('.js')?'text/javascript':'text/html; charset=utf-8','Cache-Control':'no-store'});return res.end(readFileSync(`${root}public/${files[url.pathname]}`));}
     json(res,404,{error:'Ruta no encontrada.'});
   } catch(e){if(!e.status)console.error('Solicitud fallida:',e.message);json(res,e.status||400,{error:e.message});}

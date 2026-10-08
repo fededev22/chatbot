@@ -25,7 +25,6 @@ npm test
 7. En **Configuración**, se muestra la información guardada y su fecha de actualización. Pulsá **Editar** para modificar nombre, dirección, saludo, respuesta alternativa, horarios, profesionales, servicios, precios y preguntas frecuentes. **Guardar cambios** vuelve a la vista de los datos actualizados; **Cancelar edición** descarta el borrador. No hace falta editar JSON ni reiniciar; los mensajes siguientes usan la información guardada. Las respuestas de dirección, horarios, servicios, precios y duración pueden vincularse a los datos del negocio o escribirse manualmente.
 8. El panel comprueba el acceso de Meta y la recepción por HTTPS cada 90 segundos. Muestra un aviso si el token vence o el webhook deja de responder; no basta con tener credenciales guardadas.
 9. La cuenta administradora tiene **Cuentas del equipo**. Puede crear invitaciones privadas de un solo uso, que vencen en 24 horas y reservan un cupo. Cada invitado elige su contraseña. Hay como máximo 3 cuentas registradas, contando invitaciones pendientes; las cuentas bloqueadas también ocupan un cupo. Podés cancelar una invitación pendiente para liberar ese cupo. Bloquear una cuenta cierra su sesión; habilitarla permite volver a iniciar sesión.
-10. La administradora puede guardar el proveedor, modelo y clave de API en **Configuración → Proveedor de IA**. La clave se guarda en `data/ai.json`, nunca se devuelve al navegador ni se publica. Guardar el proveedor no activa IA en WhatsApp.
 
 ## Qué funciona
 
@@ -48,7 +47,7 @@ WhatsApp usa interpretación local de frases y una agenda local, **sin Google Ca
 
 ## Proveedor de IA
 
-La configuración del proveedor permanece en la sección Configuración, solo para la cuenta administradora. Se conservan las claves ya guardadas. El panel no expone el simulador ni su API; la conversación con los pacientes ocurre por WhatsApp. Las funciones de evaluación de IA se conservan como código para pruebas de desarrollo, sin ruta pública en el servidor.
+El proveedor de IA se administra únicamente desde el servidor para pruebas de desarrollo. El panel del negocio no muestra proveedores, modelos ni claves y no ofrece una API para consultar o modificar esa configuración. El código está en `ai.mjs` y las instrucciones en [docs/AI-CONFIG.md](docs/AI-CONFIG.md). Las claves ya guardadas en `data/ai.json` se conservan privadas y quedan excluidas de GitHub. La IA externa todavía no está conectada a WhatsApp.
 
 SQLite es la fuente única de disponibilidad: los turnos de otros sistemas no se importan. Antes de un piloto, cargá todos los bloqueos de agenda o implementá una sincronización bidireccional con la agenda real. El panel es para un negocio, con una cuenta administradora y hasta dos cuentas de equipo. Todas operan la recepción y la información del bot; solo la administradora habilita o bloquea accesos.
 
@@ -74,7 +73,7 @@ Los recordatorios se generan mientras el servidor corre, en una ventana de 15 mi
 6. Confirmar que la aplicación está suscripta al WABA correcto y que el ID del número coincide. Enviar un mensaje desde un destinatario autorizado. Revisar Atención humana y la cola.
 7. Crear una plantilla de utilidad para recordatorios con tres parámetros de cuerpo: nombre, servicio, fecha/hora. Configurar su nombre exacto e idioma en `REMINDER_TEMPLATE` y `REMINDER_LANGUAGE` solo después de aprobación. Incluir las instrucciones de confirmar, cancelar y reprogramar en el texto de la plantilla.
 8. Mantener los mensajes libres dentro de la ventana de atención de 24 h. El servidor bloquea respuestas libres fuera de la ventana y usa plantillas para recordatorios.
-9. Antes de producción, verificar permisos, token persistente y versión de Graph habilitada para la aplicación. `GRAPH_VERSION` es configurable; el valor del ejemplo debe validarse en Meta.
+9. Antes de producción, verificar permisos, token de usuario del sistema y versión de Graph habilitada para la aplicación. El token temporal del asistente dura unas 24 horas; reemplazarlo siguiendo [docs/WHATSAPP-TOKEN.md](docs/WHATSAPP-TOKEN.md). `GRAPH_VERSION` es configurable; el valor del ejemplo debe validarse en Meta.
 
 `npm run meta:status` consulta las suscripciones de la app y del WABA, y muestra únicamente conteos de mensajes y estados de envío. Requiere `META_APP_ID`, `WHATSAPP_BUSINESS_ID` y las credenciales en `.env`. `npm run meta:status -- --subscribe` completa la suscripción del WABA si falta, mediante el [endpoint documentado por Meta](https://www.postman.com/meta/whatsapp-business-platform/request/ju40fld/subscribe-app-to-waba-s-webhooks). Para comprobar las rutas y firmas con ambos procesos activos, ejecutá `npm run check:connection`; podés pasarle la URL HTTPS del túnel para comprobarlas también desde Internet.
 
