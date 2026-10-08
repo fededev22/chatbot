@@ -33,7 +33,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 Run-Git -Arguments @('add','--all','--','.') | Out-Null
 Assert-PublicFiles
-$secretFiles = & git grep --cached -I -l -E -- '(EA[A-Za-z0-9]{35,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{35,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|^(WHATSAPP_TOKEN|META_APP_SECRET|WEBHOOK_VERIFY_TOKEN|ADMIN_TOKEN)=.+$)'
+$secretFiles = & git grep --cached -I -l -E -- '(EA[A-Za-z0-9]{35,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{35,}|nvapi-[A-Za-z0-9_-]{30,}|sk-or-v1-[A-Za-z0-9_-]{30,}|sk-proj-[A-Za-z0-9_-]{30,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|^(WHATSAPP_TOKEN|META_APP_SECRET|WEBHOOK_VERIFY_TOKEN|ADMIN_TOKEN)=.+$)'
 if ($LASTEXITCODE -eq 0) { throw "Posibles credenciales en archivos preparados: $($secretFiles -join ', '). Revisalos antes de publicar." }
 if ($LASTEXITCODE -ne 1) { throw 'No se pudo completar la revisión de credenciales.' }
 & git diff --cached --quiet

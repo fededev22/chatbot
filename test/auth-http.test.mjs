@@ -11,7 +11,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}: instalación, cookies, CSRF, permisos y sesión única`,async()=>{
   const directory=mkdtempSync(join(tmpdir(),'dental-auth-test-'));
   const socket=createServer();await new Promise((ok,bad)=>socket.once('error',bad).listen(0,'127.0.0.1',ok));const port=socket.address().port;await new Promise(ok=>socket.close(ok));
-  for(const file of ['server.mjs','auth.mjs','core.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
+  for(const file of ['server.mjs','auth.mjs','core.mjs','language.mjs','ai.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
   cpSync(join(root,'public'),join(directory,'public'),{recursive:true});
   const origin=`${secure?'https':'http'}://127.0.0.1:${port}`;
   const child=spawn(process.execPath,[join(directory,'server.mjs')],{cwd:directory,env:{...process.env,HOST:'127.0.0.1',PORT:String(port),PANEL_ORIGIN:secure?origin:'',ADMIN_TOKEN:'installation-test-only',WHATSAPP_TOKEN:'',WHATSAPP_PHONE_ID:'',META_APP_SECRET:'',WEBHOOK_VERIFY_TOKEN:''},stdio:['ignore','pipe','pipe']});
@@ -33,8 +33,14 @@ for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}:
     assert.equal((await call('/api/config',{}, {'X-CSRF-Token':'incorrect'})).status,403);
     assert.equal((await call('/api/auth/setup',{},{Authorization:'Bearer installation-test-only'})).status,403);
     assert.equal((await call('/api/accounts')).status,200);
+    assert.equal((await call('/api/ai')).status,200);
+    const aiConfig={provider:'nvidia',model:'test/model',enabled:false,key:'synthetic-test-key-never-a-real-credential'};
+    const savedAI=await call('/api/ai',aiConfig);assert.equal(savedAI.status,200);assert.ok(!(await savedAI.text()).includes(aiConfig.key));
+    const testReply=await call('/api/chat',{session:'demo:isolated',text:'quiero una limpieza mañana a las 10',synthetic:true});assert.equal(testReply.status,200);
+    assert.ok(!(await (await call('/api/dashboard')).text()).includes('demo:isolated'));
     const invite=await (await call('/api/accounts/invite',{email:'staff@example.test',phone:'+5491112345679'})).json();
     const oldCookie=cookie,oldCsrf=csrf;cookie='';csrf='';const accepted=await call('/api/auth/accept',{invite:invite.token,password,...await captcha()});assert.equal(accepted.status,200);installSession(accepted,await accepted.json());assert.equal((await call('/api/accounts')).status,403);assert.equal((await call('/api/accounts/invite',{email:'third@example.test',phone:'+5491112345680'})).status,403);
+    assert.equal((await call('/api/ai',aiConfig)).status,403);assert.ok(!(await (await call('/api/ai')).text()).includes(aiConfig.key));
     const login=await call('/api/auth/login',{...fields,...await captcha()});assert.equal(login.status,200);const newOwner=await login.json();cookie=oldCookie;csrf=oldCsrf;assert.equal((await call('/api/dashboard')).status,401);installSession(login,newOwner);
     assert.equal((await call('/api/auth/activity',{})).status,200);assert.equal((await call('/api/auth/logout',{})).status,200);assert.equal((await call('/api/dashboard')).status,401);
   }finally{child.kill();await exit;const absolute=resolve(directory);assert.equal(dirname(absolute),resolve(tmpdir()));assert.ok(basename(absolute).startsWith('dental-auth-test-'));rmSync(absolute,{recursive:true,force:true});}

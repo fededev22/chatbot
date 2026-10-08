@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {welcomeText,botText,defaultFallback,faqAnswer,faqSources} from './bot-info.mjs';
+import {interpret} from './language.mjs';
 export const normalize = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 export function safeMessage(text) {return /\b(dolor|duele|sangrado|hinchazon|urgencia|medicamento|diagnostico|fiebre|historia clinica)\b/.test(normalize(text))?'[Consulta clínica: contenido omitido. Contactar al paciente por un canal adecuado.]':text;}
 export function validateConfig(c) {
@@ -56,6 +57,8 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
   function handle(session,text,channel='demo') {
     if (typeof text !== 'string' || !text.trim() || text.length>2000) throw Error('Mensaje inválido (máximo 2000 caracteres).');
     let s=state(session), n=normalize(text), c=getConfig(), intent='faq', reply='', choices=[];
+    const message=interpret(text,c,s,clock());
+    n=message.command||message.n;
     const result=()=>{
       save(session,s);
       run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',safeMessage(text),clock().toISOString());
@@ -63,11 +66,27 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       return {reply,intent,data:s,choices};
     };
     const services=()=> { reply='¿Qué servicio querés reservar?'; choices=c.services.map(x=>({label:x.name,value:x.id})); s.step='service'; };
+    const prompts={service:'¿Qué servicio querés reservar?',day:'¿Qué día preferís? Podés decir mañana, el viernes o una fecha como 08/10/2026.',time:'¿Qué horario de la lista preferís?',name:'¿Cuál es tu nombre y apellido?',phone:'¿Cuál es tu teléfono con código de país?',consent:'¿Querés recibir recordatorios? Respondé sí o sin recordatorios.',confirm:'¿Confirmás la reserva del resumen anterior?',cancel_id:'Elegí el código de tu turno a cancelar.',reschedule_id:'Elegí el código de tu turno a reprogramar.',cancel_confirm:'¿Confirmás cancelar el turno anterior?'};
+    const advance=()=>{
+      s.step='day';reply=prompts.day;
+      const day=message.day||s.requestDay,time=message.time||s.requestTime;
+      if(!day)return;
+      delete s.requestDay;delete s.requestTime;
+      const available=slots(s.service,day);
+      if(!available.length){reply='No hay horarios disponibles para esa fecha. Elegí otro día hábil; podés decir el viernes o una fecha como 09/10/2026.';return;}
+      s.day=day;s.step='time';reply=`Para el ${day}, estos horarios están disponibles (hora de Argentina). ¿Cuál preferís?`;
+      choices=available.map(x=>({label:x.time,value:x.time}));
+      if(!time)return;
+      const slot=available.find(x=>x.time===time);
+      if(!slot){reply=`A las ${time} no hay disponibilidad para el ${day}. Elegí otro horario de la lista.`;return;}
+      s.time=time;s.step=s.old?'confirm':'name';choices=s.old?confirmChoices():[];
+      reply=s.old?summary(s,c):'¿Cuál es tu nombre y apellido? No envíes datos médicos.';
+    };
     if (s.paused) { reply='Recepción tiene tu conversación pendiente. El bot está pausado hasta que una persona lo reactive.'; intent='humano'; return result(); }
-    if (/\b(humano|persona|recepcion|asesor)\b/.test(n) || safeMessage(text)!==text) {
+    if (n==='humano' || safeMessage(text)!==text) {
       s={paused:true}; intent='humano'; reply='Voy a derivar tu consulta a recepción. No puedo evaluar síntomas ni recomendar tratamientos. Si creés que es una emergencia, contactá un servicio de urgencias local. No envíes estudios ni información médica por este chat.'; return result();
     }
-    if (n==='reiniciar' || n==='volver' || n==='no') { s={}; reply='Listo, descarté la operación pendiente. ¿En qué puedo ayudarte?'; choices=[{label:'Reservar turno',value:'agendar'},{label:'Mis turnos',value:'mis turnos'}]; return result(); }
+    if (n==='reiniciar' || n==='volver' || n==='no'&&s.step!=='consent') { s={}; reply='Listo, descarté la operación pendiente. ¿En qué puedo ayudarte?'; choices=[{label:'Reservar turno',value:'agendar'},{label:'Mis turnos',value:'mis turnos'}]; return result(); }
     if (n==='confirmar asistencia') { run("UPDATE appointments SET attendance=1 WHERE session=? AND status='confirmed' AND start>?",session,clock().toISOString()); reply='Registré tu confirmación de asistencia para tus próximos turnos.'; return result(); }
     if (['mis turnos','cancelar','reprogramar'].includes(n)) {
       const appointments=query("SELECT * FROM appointments WHERE session=? AND status='confirmed' AND start>? ORDER BY start",session,clock().toISOString());
@@ -75,33 +94,48 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       reply=appointments.length?'Elegí tu turno. Para modificarlo escribí cancelar o reprogramar.':'No tenés turnos próximos en esta conversación.';
       choices=appointments.map(a=>({label:`${c.services.find(x=>x.id===a.service)?.name || a.service} · ${formatDate(a.start)}`,value:a.id})); return result();
     }
-    if (n==='agendar' || !s.step && (/\b(reservar|agendar)\b/.test(n)||['turno','cita','quiero un turno','quiero una cita'].includes(n))) { s={}; intent='agendar'; services(); return result(); }
+    if (n==='agendar' || !s.step && ['turno','cita'].includes(n)) {
+      s={}; intent='agendar';
+      if(message.service){s.service=message.service.id;advance();}
+      else {if(message.day)s.requestDay=message.day;if(message.time)s.requestTime=message.time;services();}
+      return result();
+    }
+    const fieldAnswer=s.step==='service'&&message.service&&!message.question||s.step==='day'&&message.day&&!message.question||s.step==='time'&&message.time&&!message.question;
+    if(!message.command&&!fieldAnswer&&(message.faq||message.greeting||message.thanks||message.question)) {
+      const topic=message.service?.id||s.service||s.contextService;
+      if(message.service)s.contextService=topic;
+      const answerConfig=c.services.some(x=>x.id===topic)&&['prices','duration'].includes(message.faq?.source)?{...c,services:c.services.filter(x=>x.id===topic)}:c;
+      if(message.faq)reply=faqAnswer(message.faq,answerConfig);
+      else if(message.greeting)reply=s.step?'¡Hola! Seguimos con tu turno.':welcomeText(c);
+      else if(message.thanks)reply='¡De nada! Si necesitás otra consulta o un turno, acá estoy.';
+      else reply=botText(c.bot?.fallback||defaultFallback,c);
+      if(s.step)reply+=`\n\n${prompts[s.step]||'Seguimos con tu turno pendiente.'}`;
+      else if(message.greeting)choices=[{label:'Reservar turno',value:'agendar'},{label:'Horarios',value:'horarios'},{label:'Hablar con recepción',value:'humano'}];
+      return result();
+    }
     if (s.step) {
       intent=s.old?'reprogramar':s.step.startsWith('cancel')?'cancelar':'agendar';
       if (s.step==='cancel_id' || s.step==='reschedule_id') {
-        const a=owned(session,text.trim());
+        const id=text.match(/\b[a-f0-9]{8}\b/i)?.[0]?.toLowerCase()||text.trim();
+        const a=owned(session,id);
         if(!a || new Date(a.start)<=clock()) reply='Elegí un turno propio y vigente de la lista.';
         else if(s.step==='cancel_id') { s={step:'cancel_confirm',id:a.id}; reply=`¿Confirmás cancelar ${formatDate(a.start)}?`; choices=[{label:'Sí, cancelar',value:'confirmar'},{label:'Conservar turno',value:'no'}]; }
-        else { s={old:a.id,service:a.service,name:a.name,phone:a.phone,consent:!!a.consent,step:'day'}; reply='¿Para qué nueva fecha? Usá AAAA-MM-DD. Tu turno original se conserva hasta confirmar el cambio.'; }
+        else { s={old:a.id,service:a.service,name:a.name,phone:a.phone,consent:!!a.consent,step:'day'}; reply='¿Para qué nueva fecha? Podés decir mañana o el viernes. Tu turno original se conserva hasta confirmar el cambio.'; }
       } else if (s.step==='cancel_confirm') {
         if(n!=='confirmar') reply='Escribí confirmar o no.';
         else { run("UPDATE appointments SET status='cancelled' WHERE id=? AND session=? AND status='confirmed'",s.id,session); s={}; reply='Tu turno fue cancelado.'; }
       } else if(s.step==='service') {
-        const service=c.services.find(x=>x.id===n || normalize(x.name)===n);
-        if(!service) { services(); } else { s.service=service.id;s.step='day';reply='¿Qué día preferís? Usá AAAA-MM-DD (hasta 90 días).'; }
+        const service=message.service;
+        if(!service) { services(); } else { s.service=service.id;advance(); }
       } else if(s.step==='day') {
-        let day=text.trim();
-        if(n==='hoy'||n==='manana') day=new Date(clock().getTime()-3*3600000+(n==='manana'?86400000:0)).toISOString().slice(0,10);
-        const available=slots(s.service,day);
-        if(!available.length) reply='No hay horarios disponibles para esa fecha. Elegí otro día hábil con formato AAAA-MM-DD.';
-        else {s.day=day;s.step='time';reply='Estos horarios están disponibles (hora de Argentina). Elegí uno o escribí volver.'; choices=available.map(x=>({label:x.time,value:x.time}));}
+        advance();
       } else if(s.step==='time') {
-        const slot=slots(s.service,s.day).find(x=>x.time===text.trim());
+        const slot=slots(s.service,s.day).find(x=>x.time===message.time);
         if(!slot) {reply='Ese horario ya no está disponible. Elegí otro de la lista.'; choices=slots(s.service,s.day).map(x=>({label:x.time,value:x.time}));}
         else {s.time=slot.time; s.step=s.old?'confirm':'name'; reply=s.old?summary(s,c):'¿Cuál es tu nombre y apellido? No envíes datos médicos.'; if(s.old) choices=confirmChoices();}
       } else if(s.step==='name') {
-        if(text.trim().length<3 || text.length>100 || !/\p{L}/u.test(text)) reply='Ingresá un nombre válido, de 3 a 100 caracteres.';
-        else {s.name=text.trim();s.step=channel==='whatsapp'?'consent':'phone'; if(channel==='whatsapp') s.phone=session.slice(3); reply=channel==='whatsapp'?'¿Querés recibir recordatorios de este turno por WhatsApp? Respondé acepto o sin recordatorios.':'¿Cuál es tu teléfono? Incluí código de país, por ejemplo +5491112345678.';}
+        if(message.name.length<3 || message.name.length>100 || !/^[\p{L}\p{M}]+(?:[ '\u2019-][\p{L}\p{M}]+)+$/u.test(message.name)) reply='Ingresá tu nombre y apellido, de 3 a 100 caracteres.';
+        else {s.name=message.name;s.step=channel==='whatsapp'?'consent':'phone'; if(channel==='whatsapp') s.phone=session.slice(3); reply=channel==='whatsapp'?'¿Querés recibir recordatorios de este turno por WhatsApp? Respondé sí o sin recordatorios.':'¿Cuál es tu teléfono? Incluí código de país, por ejemplo +5491112345678.';}
       } else if(s.step==='phone') {
         const phone=text.replace(/[\s()+-]/g,'');
         if(!/^\d{10,15}$/.test(phone)) reply='Usá entre 10 y 15 dígitos con código de país.';
@@ -126,9 +160,7 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       }
       return result();
     }
-    const faq=c.faqs.find(f=>f.keywords.some(k=>n.includes(normalize(k))));
-    if(faq) reply=faqAnswer(faq,c);
-    else if(/^(hola|buenas|buen dia|inicio|menu)/.test(n)) {reply=welcomeText(c);choices=[{label:'Reservar turno',value:'agendar'},{label:'Horarios',value:'horarios'},{label:'Hablar con recepción',value:'humano'}];}
+    if(message.service){s.contextService=message.service.id;reply=`${message.service.name}: duración de ${message.service.minutes} minutos. Precio: ${message.service.price||'A confirmar con recepción'}. ¿Querés que busquemos un turno?`;choices=[{label:'Reservar turno',value:`quiero un turno para ${message.service.name}`}];}
     else {reply=botText(c.bot?.fallback||defaultFallback,c);choices=[{label:'Derivar a recepción',value:'humano'},{label:'Reservar turno',value:'agendar'}];}
     return result();
   }

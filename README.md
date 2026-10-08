@@ -25,10 +25,13 @@ npm test
 7. En **Configuración**, se muestra la información guardada y su fecha de actualización. Pulsá **Editar** para modificar nombre, dirección, saludo, respuesta alternativa, horarios, profesionales, servicios, precios y preguntas frecuentes. **Guardar cambios** vuelve a la vista de los datos actualizados; **Cancelar edición** descarta el borrador. No hace falta editar JSON ni reiniciar; los mensajes siguientes usan la información guardada. Las respuestas de dirección, horarios, servicios, precios y duración pueden vincularse a los datos del negocio o escribirse manualmente.
 8. El panel comprueba el acceso de Meta y la recepción por HTTPS cada 90 segundos. Muestra un aviso si el token vence o el webhook deja de responder; no basta con tener credenciales guardadas.
 9. La cuenta administradora tiene **Cuentas del equipo**. Puede crear invitaciones privadas de un solo uso, que vencen en 24 horas y reservan un cupo. Cada invitado elige su contraseña. Hay como máximo 3 cuentas registradas, contando invitaciones pendientes; las cuentas bloqueadas también ocupan un cupo. Podés cancelar una invitación pendiente para liberar ese cupo. Bloquear una cuenta cierra su sesión; habilitarla permite volver a iniciar sesión.
+10. **Prueba del bot** permite conversar y reservar con datos ficticios en una base separada, sin ocupar la agenda de pacientes. La administradora puede configurar NVIDIA NIM u OpenRouter, cargar una clave nueva y activar IA solo para el simulador. La clave se guarda en `data/ai.json`, nunca se devuelve al navegador ni se publica. El chat exige declarar que los datos son ficticios antes de enviarlos al proveedor.
 
 ## Qué funciona
 
 - 15 FAQs configurables y respuesta prudente cuando no hay información.
+- Frases naturales para reservar: «quiero una limpieza mañana a las 10», fechas como «el viernes» o «08/10/2026» y horarios como «a las 3 de la tarde».
+- Consultas de precio y duración con contexto del servicio; preguntas durante la reserva conservan los datos pendientes. «Me llamo Ana Pérez» y respuestas «sí» / «no gracias» para recordatorios.
 - Reserva, reprogramación y cancelación con confirmación explícita.
 - Validación de disponibilidad en SQLite, duración y descansos por profesional.
 - Horarios de Argentina; fechas futuras hasta 90 días. Fines de semana cerrados por defecto.
@@ -41,7 +44,15 @@ npm test
 
 ## Alcance y límites
 
-La demo usa un motor determinista, **sin IA externa**, y una agenda local, **sin Google Calendar**. El FAQ funciona por palabras clave; ante ambigüedad ofrece recepción. No interpreta libremente fechas como “el martes que viene”: pide una fecha exacta. El contenido médico no debe ingresarse: la omisión por palabras clave no constituye un filtro completo de datos sensibles.
+WhatsApp usa interpretación local de frases y una agenda local, **sin Google Calendar**. Reconoce solicitudes de turnos, servicios configurados, fechas y horas habituales; responde consultas con los datos guardados por la clínica y mantiene el contexto del servicio. La IA externa es opcional y está limitada al simulador. Ante una pregunta desconocida el motor local usa la respuesta alternativa editable. Las fechas se muestran explícitamente antes de confirmar; «el viernes» se interpreta como la próxima ocurrencia, incluido hoy si es viernes. El contenido médico no debe ingresarse: la omisión por palabras clave no constituye un filtro completo de datos sensibles.
+
+## IA en el simulador
+
+Ingresá con la cuenta administradora y abrí **Prueba del bot**. Elegí NVIDIA NIM u OpenRouter, el modelo disponible en tu cuenta y una clave recién creada. Marcá **Activar IA en el simulador** y guardá. La clave vacía conserva la anterior del mismo proveedor; cambiar de proveedor requiere su propia clave. Desmarcar la activación vuelve al motor local. No hay llamadas a IA al guardar: se realizan únicamente al enviar consultas de prueba con la declaración de datos ficticios.
+
+La IA conversa a partir de la información actual del panel. Solo recibe la consulta actual, los datos configurados del negocio y el servicio o pregunta pendiente; no recibe la identidad del borrador ni registros de pacientes. No tiene herramientas de escritura. Reservar, cancelar, reprogramar, tomar nombres/teléfonos y confirmar siguen pasando por la lógica local. Las respuestas generadas pueden ser incorrectas: esta integración sirve para evaluación, no para atención clínica. Ante errores, cupos agotados o una respuesta inválida se conserva la respuesta local y se muestra un aviso. No se publica el cuerpo del error del proveedor ni su clave.
+
+El acceso gratuito de [NVIDIA NIM](https://docs.api.nvidia.com/nim/docs/product) es para prototipos; sus [condiciones de prueba](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf) excluyen producción y datos sensibles. [OpenRouter](https://openrouter.ai/docs/faq) ofrece modelos gratuitos con límites bajos y modelos pagos por consumo. Las solicitudes del simulador a OpenRouter exigen `data_collection: deny` y `zdr: true`; si ningún proveedor cumple, se usa la respuesta local, sin relajar esos requisitos. Para habilitar IA en WhatsApp de pacientes hay que seleccionar un servicio apto para producción y definir el tratamiento de sus datos. Esta versión no activa ese envío.
 
 SQLite es la fuente única de disponibilidad: los turnos de otros sistemas no se importan. Antes de un piloto, cargá todos los bloqueos de agenda o implementá una sincronización bidireccional con la agenda real. El panel es para un negocio, con una cuenta administradora y hasta dos cuentas de equipo. Todas operan la recepción y la información del bot; solo la administradora habilita o bloquea accesos.
 
@@ -98,6 +109,8 @@ Codex tiene instrucciones para hacer commit y push al finalizar los cambios soli
 ## Archivos del proyecto
 
 - `core.mjs`: conversación, agenda, persistencia y recordatorios.
+- `language.mjs`: interpretación local de frases, fechas, horas y contexto de consultas.
+- `ai.mjs`: configuración privada de NVIDIA/OpenRouter y respuestas de IA únicamente en el simulador aislado.
 - `server.mjs`: servidor HTTP, acceso, webhook y envíos WhatsApp.
 - `reception.mjs`: bandeja privada, lecturas, historial, atención humana y estados de entrega.
 - `bot-info.mjs`: mensajes editables y respuestas vinculadas a los datos actuales del negocio.
