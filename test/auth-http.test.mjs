@@ -11,7 +11,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}: instalación, cookies, CSRF, permisos y sesión única`,async()=>{
   const directory=mkdtempSync(join(tmpdir(),'dental-auth-test-'));
   const socket=createServer();await new Promise((ok,bad)=>socket.once('error',bad).listen(0,'127.0.0.1',ok));const port=socket.address().port;await new Promise(ok=>socket.close(ok));
-  for(const file of ['server.mjs','auth.mjs','core.mjs','language.mjs','ai.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
+  for(const file of ['server.mjs','auth.mjs','core.mjs','language.mjs','ai.mjs','conversation-ai.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
   cpSync(join(root,'public'),join(directory,'public'),{recursive:true});
   const origin=`${secure?'https':'http'}://127.0.0.1:${port}`;
   const child=spawn(process.execPath,[join(directory,'server.mjs')],{cwd:directory,env:{...process.env,HOST:'127.0.0.1',PORT:String(port),PANEL_ORIGIN:secure?origin:'',ADMIN_TOKEN:'installation-test-only',WHATSAPP_TOKEN:'',WHATSAPP_PHONE_ID:'',META_APP_SECRET:'',WEBHOOK_VERIFY_TOKEN:''},stdio:['ignore','pipe','pipe']});

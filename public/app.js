@@ -6,7 +6,7 @@ const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefine
 const legacyKey=sessionStorage.getItem('admin-token')||'';
 let token=false,csrf='',accountAccess,dashboard,selected=null,filter='all',refreshing=false,authEpoch=0,detailVersion=0,history=[],hasMore=false,historySignature='',acting=false;
 const readIds=new Map();
-const labels={confirmed:'Confirmado',cancelled:'Cancelado',rescheduled:'Reprogramado',cancelled_send:'Descartado',pending:'En cola',sent:'Aceptado por WhatsApp',delivered:'Entregado',read:'Leído',failed:'Falló el envío',blocked_window:'Fuera de las 24 horas',blocked_template:'Falta plantilla',obsolete:'Recordatorio descartado',diagnosing:'Comprobando envío'};
+const labels={confirmed:'Confirmado',cancelled:'Cancelado',rescheduled:'Reprogramado',cancelled_send:'Descartado',pending:'En cola',generating:'Preparando respuesta',sent:'Aceptado por WhatsApp',delivered:'Entregado',read:'Leído',failed:'Falló el envío',blocked_window:'Fuera de las 24 horas',blocked_template:'Falta plantilla',obsolete:'Recordatorio descartado',diagnosing:'Comprobando envío'};
 const date=s=>new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'medium',timeStyle:'short'}).format(new Date(s));
 const time=s=>new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',hour:'2-digit',minute:'2-digit'}).format(new Date(s));
 const service=id=>dashboard?.config.services.find(s=>s.id===id)?.name||id;

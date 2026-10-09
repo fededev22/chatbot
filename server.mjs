@@ -2,18 +2,22 @@ import http from 'node:http';
 import {readFileSync,writeFileSync,mkdirSync,renameSync,statSync} from 'node:fs';
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {createEngine,validateConfig,safeMessage} from './core.mjs';
+import {createEngine,validateConfig} from './core.mjs';
 import {createRecipientResolver} from './whatsapp.mjs';
 import {dashboardData,conversationData,markRead,humanAction,recordDelivery,acceptedDelivery} from './reception.mjs';
 import {checkWhatsAppConnection} from './connection.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {createAuth,authError} from './auth.mjs';
+import {createAISettings} from './ai.mjs';
+import {createWhatsAppConversations} from './conversation-ai.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 mkdirSync(`${root}data`,{recursive:true});
 let config=validateConfig(JSON.parse(readFileSync(`${root}business.json`,'utf8')));
 let configUpdatedAt=statSync(`${root}business.json`).mtime.toISOString();
 const engine=createEngine(`${root}data/clinic.sqlite`,()=>config);
 const env=process.env, host=env.HOST||'127.0.0.1', port=Number(env.PORT||3000);
+const aiSettings=createAISettings(`${root}data/ai.json`);
+const conversations=createWhatsAppConversations(engine,()=>config,aiSettings,{mode:env.AI_WHATSAPP_MODE||'off',trialRecipients:(env.AI_TEST_RECIPIENTS||'').split(',').map(s=>s.trim()).filter(Boolean)});
 const localHost=['127.0.0.1','localhost','::1'].includes(host);
 if(!localHost&&(!env.PANEL_ORIGIN?.startsWith('https://')||!env.ADMIN_TOKEN))throw Error('El panel remoto requiere PANEL_ORIGIN HTTPS y clave privada de instalación.');
 const authDb=new DatabaseSync(`${root}data/accounts.sqlite`),auth=createAuth(authDb);
@@ -59,9 +63,10 @@ const server=http.createServer(async(req,res)=>{
           if(typeof message.id!=='string'||!/^\d{10,15}$/.test(message.from)) continue;
           if(engine.db.prepare('SELECT 1 FROM webhooks WHERE id=?').get(message.id)) continue;
           const session=`wa:${message.from}`;
-          processWebhook(message,session);
+          conversations.receive(message,session);
         }
       }
+      void conversations.drain().then(()=>void flush());
       return json(res,200,{ok:true});
     }
     if(!rate(req.socket.remoteAddress)) return json(res,429,{error:'Demasiadas solicitudes. Esperá un minuto.'});
@@ -113,29 +118,6 @@ const server=http.createServer(async(req,res)=>{
     json(res,404,{error:'Ruta no encontrada.'});
   } catch(e){if(!e.status)console.error('Solicitud fallida:',e.message);json(res,e.status||400,{error:e.message});}
 });
-// Recepción, estado, reserva y salida se escriben en una sola transacción.
-function processWebhook(message,session){
-  engine.db.exec('BEGIN IMMEDIATE');
-  try {
-    engine.run('INSERT INTO webhooks VALUES(?)',message.id);
-    if(engine.state(session).paused) {
-      engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',safeMessage(message.type==='text'?message.text?.body||'[Sin texto]':'[Archivo no procesado]'),new Date().toISOString());
-      engine.save(session,engine.state(session));
-    } else {
-      const answer=message.type==='text'?engine.handle(session,message.text?.body||'hola','whatsapp'):{reply:'No proceso audios, imágenes ni estudios médicos. Escribí tu consulta en texto o pedí humano.',choices:[]};
-      const text=answer.reply+(answer.choices?.length?'\n\n'+answer.choices.map(x=>`${x.label}: ${x.value}`).join('\n'):'');
-      if(message.type!=='text') {
-        engine.save(session,engine.state(session));
-        engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user','[Archivo no procesado]',new Date().toISOString());
-        engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'bot',text,new Date().toISOString());
-      }
-      const messageId=engine.query("SELECT id FROM messages WHERE session=? AND role='bot' ORDER BY id DESC LIMIT 1",session)[0].id;
-      engine.run('UPDATE messages SET text=? WHERE id=?',text,messageId);
-      engine.queue(session,text,false,[],null,{messageId});
-    }
-    engine.db.exec('COMMIT');
-  } catch(e){engine.db.exec('ROLLBACK');throw e;}
-}
 let flushing=false;
 async function flush(){
   if(flushing||!waEnabled)return;flushing=true;
@@ -155,5 +137,7 @@ async function flush(){
   }}finally{flushing=false;}
 }
 setInterval(()=>{try{engine.remind();}catch(e){console.error('Recordatorios:',e.message);}void flush();},15000).unref();
+setInterval(()=>void conversations.drain().then(()=>void flush()),2000).unref();
+void conversations.drain().then(()=>void flush());
 server.listen(port,host,()=>console.log(`Clínica dental: http://${host}:${port} · WhatsApp ${waEnabled?'configurado':'demo local'}`));
 process.on('SIGTERM',()=>server.close(()=>{engine.db.close();authDb.close();process.exit(0);}));

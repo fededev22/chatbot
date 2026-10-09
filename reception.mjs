@@ -52,7 +52,7 @@ export function humanAction(e,data,enabled,now=new Date()) {
   try {
     if(data.action==='pause') {
       e.save(data.session,{...state,paused:true});
-      e.run("UPDATE outbox SET status='cancelled' WHERE session=? AND status='pending' AND role='bot'",data.session);
+      e.run("UPDATE outbox SET status='cancelled' WHERE session=? AND status IN ('pending','generating') AND role='bot'",data.session);
     } else if(data.action==='resume') {
       delete state.paused;
       e.save(data.session,state);

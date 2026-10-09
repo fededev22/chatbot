@@ -43,11 +43,11 @@ npm test
 
 ## Alcance y límites
 
-WhatsApp usa interpretación local de frases y una agenda local, **sin Google Calendar**. Reconoce solicitudes de turnos, servicios configurados, fechas y horas habituales; responde consultas con los datos guardados por la clínica y mantiene el contexto del servicio. La IA externa todavía no está conectada a WhatsApp. El panel no incluye chat de prueba ni envío manual de mensajes. Ante una pregunta desconocida el motor local usa la respuesta alternativa editable. Las fechas se muestran explícitamente antes de confirmar; «el viernes» se interpreta como la próxima ocurrencia, incluido hoy si es viernes. El contenido médico no debe ingresarse: la omisión por palabras clave no constituye un filtro completo de datos sensibles.
+WhatsApp puede conversar con IA, mantener contexto y responder con los datos guardados de la clínica, sin menús ni instrucciones para escribir comandos. La integración se activa desde el servidor; el modo inicial está desactivado. NVIDIA gratuita se limita a participantes autorizados de la prueba. Las reservas y la disponibilidad siguen usando el motor local y una agenda SQLite, **sin Google Calendar**; la IA no puede confirmar ni modificar turnos. El panel no incluye chat de prueba ni envío manual de mensajes. Ante un fallo de la API se usa la respuesta local. Las fechas se muestran explícitamente antes de confirmar; «el viernes» se interpreta como la próxima ocurrencia, incluido hoy si es viernes. El contenido médico no debe ingresarse: la omisión por palabras clave no constituye un filtro completo de datos sensibles.
 
 ## Proveedor de IA
 
-El proveedor de IA se administra únicamente desde el servidor para pruebas de desarrollo. El panel del negocio no muestra proveedores, modelos ni claves y no ofrece una API para consultar o modificar esa configuración. El código está en `ai.mjs` y las instrucciones en [docs/AI-CONFIG.md](docs/AI-CONFIG.md). Las claves ya guardadas en `data/ai.json` se conservan privadas y quedan excluidas de GitHub. La IA externa todavía no está conectada a WhatsApp.
+El proveedor de IA se administra únicamente desde el servidor. El panel del negocio no muestra proveedores, modelos ni claves y no ofrece una API para consultar o modificar esa configuración. El código está en `ai.mjs` y `conversation-ai.mjs`; las instrucciones de activación y los límites del modo de prueba están en [docs/AI-CONFIG.md](docs/AI-CONFIG.md). Las claves de `data/ai.json` y los números autorizados de `.env` permanecen privados y excluidos de GitHub.
 
 SQLite es la fuente única de disponibilidad: los turnos de otros sistemas no se importan. Antes de un piloto, cargá todos los bloqueos de agenda o implementá una sincronización bidireccional con la agenda real. El panel es para un negocio, con una cuenta administradora y hasta dos cuentas de equipo. Todas operan la recepción y la información del bot; solo la administradora habilita o bloquea accesos.
 
@@ -106,6 +106,7 @@ Codex tiene instrucciones para hacer commit y push al finalizar los cambios soli
 - `core.mjs`: conversación, agenda, persistencia y recordatorios.
 - `language.mjs`: interpretación local de frases, fechas, horas y contexto de consultas.
 - `ai.mjs`: configuración privada de NVIDIA/OpenRouter y funciones de evaluación de IA para pruebas de desarrollo.
+- `conversation-ai.mjs`: conversación con IA en WhatsApp, contexto, trabajos persistentes y recuperación al reiniciar.
 - `server.mjs`: servidor HTTP, acceso, webhook y envíos WhatsApp.
 - `reception.mjs`: bandeja privada, lecturas, historial, atención humana y estados de entrega.
 - `bot-info.mjs`: mensajes editables y respuestas vinculadas a los datos actuales del negocio.

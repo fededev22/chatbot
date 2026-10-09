@@ -54,14 +54,14 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
     } return found;
   }
   const owned = (session,id) => db.prepare("SELECT * FROM appointments WHERE id=? AND session=? AND status='confirmed'").get(id,session);
-  function handle(session,text,channel='demo') {
+  function handle(session,text,channel='demo',{recordUser=true}={}) {
     if (typeof text !== 'string' || !text.trim() || text.length>2000) throw Error('Mensaje inválido (máximo 2000 caracteres).');
     let s=state(session), n=normalize(text), c=getConfig(), intent='faq', reply='', choices=[];
     const message=interpret(text,c,s,clock());
     n=message.command||message.n;
     const result=()=>{
       save(session,s);
-      run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',safeMessage(text),clock().toISOString());
+      if(recordUser)run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',safeMessage(text),clock().toISOString());
       run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'bot',reply,clock().toISOString());
       return {reply,intent,data:s,choices};
     };
@@ -168,7 +168,9 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
     const role=options.role||(template?'reminder':'bot');
     let messageId=options.messageId||null;
     if(template) messageId=Number(run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,role,text,clock().toISOString()).lastInsertRowid);
-    run('INSERT INTO outbox(id,session,text,template,params,status,created,appointment,message_id,role) VALUES(?,?,?,?,?,?,?,?,?,?)',randomUUID(),session,text,template?1:0,JSON.stringify(params),session.startsWith('wa:')?'pending':'demo',clock().toISOString(),appointment,messageId,role);
+    const id=randomUUID();
+    run('INSERT INTO outbox(id,session,text,template,params,status,created,appointment,message_id,role) VALUES(?,?,?,?,?,?,?,?,?,?)',id,session,text,template?1:0,JSON.stringify(params),session.startsWith('wa:')?'pending':'demo',clock().toISOString(),appointment,messageId,role);
+    return id;
   }
   function remind() {
     for(const a of query("SELECT * FROM appointments WHERE status='confirmed' AND consent=1 AND start>?",clock().toISOString())) {
