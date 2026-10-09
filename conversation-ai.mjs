@@ -1,7 +1,7 @@
 import {safeMessage,normalize,formatDate} from './core.mjs';
 import {faqAnswer,welcomeText} from './bot-info.mjs';
 import {providers} from './ai.mjs';
-const contextPolicy='clinic-reception-v2';
+const contextPolicy='clinic-reception-v3';
 
 // Durable inbox: acknowledge Meta before inference; never await with SQLite locked.
 export function createWhatsAppConversations(engine,getConfig,settings,{mode='off',trialRecipients=[],request=fetch,clock=()=>new Date(),memory=null}={}) {
@@ -43,7 +43,7 @@ export function createWhatsAppConversations(engine,getConfig,settings,{mode='off
         engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',job.session,'bot',answer.reply,clock().toISOString());
       }
       const config=getConfig();
-      const localOnly=!answer.data.step&&answer.reply===welcomeText(config)||answer.data.step==='time'&&answer.choices?.length>0;
+      const localOnly=!!answer.data.step||!answer.data.step&&answer.reply===welcomeText(config);
       answer.reply=naturalReply(answer,config,{contact:engine.contact(job.session),appointments:engine.upcoming(job.session)});
       const messageId=engine.query("SELECT id FROM messages WHERE session=? AND role='bot' ORDER BY id DESC LIMIT 1",job.session)[0].id;
       engine.run('UPDATE messages SET text=? WHERE id=?',answer.reply,messageId);
@@ -63,13 +63,13 @@ export function createWhatsAppConversations(engine,getConfig,settings,{mode='off
     const fallback={reply:answer.reply,used:false,error:null};
     if(job.kind!=='text'||answer.data.paused)return fallback;
     // The business owns its welcome; a model or old chat must not replace it.
-    if(result.localOnly||!answer.data.step&&answer.reply===clinicWelcome(getConfig()))return fallback;
+    if(answer.data.step||result.localOnly||answer.intent==='availability'||!answer.data.step&&answer.reply===clinicWelcome(getConfig()))return fallback;
     if(!allowed(job.session,options))return {...fallback,error:'ai_not_enabled_for_recipient'};
     // Names, own appointment records and transaction confirmations stay local.
     const identity=before.step==='name'&&answer.data.step!==before.step||before.step==='phone';
     const protectedResult=identity||before.step==='cancel_confirm'&&answer.intent!=='faq'||
       answer.data.step==='confirm'&&!!answer.data.name&&answer.reply.includes(answer.data.name)||
-      ['cancel_id','reschedule_id'].includes(answer.data.step)&&answer.choices?.length>0||
+      answer.choices?.some(c=>/^[a-f0-9]{8}$/.test(c.value))||
       /\b(?:confirmado|cancelado|asistencia)\b/.test(normalize(answer.reply))||/\b(?:mis turnos|mis citas)\b/.test(normalize(input));
     if(protectedResult)return fallback;
     if(/\b(?:nvapi-|sk-or-|sk-proj-|AIza|EA[A-Za-z0-9]{30})/.test(input))return {...fallback,reply:'No compartas claves ni credenciales acá. Contame tu consulta sin esos datos.'};
@@ -113,7 +113,7 @@ export function createWhatsAppConversations(engine,getConfig,settings,{mode='off
       const data=await response.json(),rawReply=data.choices?.[0]?.message?.content;
       const reply=typeof rawReply==='string'?polishReply(rawReply):'';
       const n=normalize(reply||'');
-      if(!reply||reply.length>2000||(reply.match(/¿/g)||[]).length!==(reply.match(/\?/g)||[]).length||reply.includes(options.key)||/\b(?:turno|cita|reserva) (?:confirmad[oa]|reservad[oa]|cancelad[oa]|reprogramad[oa])\b|\b(?:reserve|agende|cancele|reprograme)\b/.test(n)||
+      if(!reply||reply.length>2000||(reply.match(/¿/g)||[]).length!==(reply.match(/\?/g)||[]).length||reply.includes(options.key)||/\b(?:confirmad[oa]|reservad[oa]|cancelad[oa]|reprogramad[oa]|agendad[oa])\b|\b(?:reserve|agende|cancele|reprograme|confirmo|te reservo|te agendo|te anoto)\b|\b(?:quedamos|queda|quedo|tenes|tienes|anote|anotado|agendado)\b[^.\n]{0,80}\b(?:turno|cita|reserva)\b/.test(n)||
         /\b(?:escribi|escribe|responde|responda|ingresa)\b[^.\n]{0,60}\b(?:agendar|confirmar|cancelar|humano|aaaa|acepto)\b/.test(n))return {...fallback,error:'ai_response_rejected'};
       return {reply:respectExistingAppointment(reply,{appointments:engine.upcoming(job.session),step:answer.data.step}),used:true,error:null,question};
     }catch{return {...fallback,error:'ai_unavailable'};}
@@ -131,6 +131,7 @@ export function createWhatsAppConversations(engine,getConfig,settings,{mode='off
         engine.run("UPDATE conversation_jobs SET status='cancelled',result=NULL WHERE id=?",job.id);
       }
       else {
+        if(!result.answer.data.step&&!engine.upcoming(job.session).length&&/¿[^?]*\b(?:reservar|buscar|agendar|sacar)\b[^?]*\b(?:turno|cita)\b[^?]*\?/.test(normalize(composed.reply))){const state=engine.state(job.session);engine.save(job.session,{...state,bookingOffer:true});}
         engine.run('UPDATE messages SET text=? WHERE id=?',composed.reply,current.message_id);
         engine.run("UPDATE outbox SET text=?,status='pending' WHERE id=? AND status='generating'",composed.reply,current.outbox_id);
         engine.run("UPDATE conversation_jobs SET status='done',result=NULL,ai_used=?,error=? WHERE id=?",composed.used?1:0,composed.error,job.id);
@@ -163,7 +164,7 @@ function clinicWelcome(config,{contact,appointments=[]}={}) {
 }
 
 export function polishReply(value) {
-  return String(value).trim().replace(/¡/g,'').replace(/!+/g,'.').replace(/¿([^¿?\n]+)\?/g,(full,sentence)=>/^(?:necesit(?:o|amos)\b|para\b.+\bnecesit(?:o|amos)\b)/i.test(sentence.trim())?sentence.trim()+'.':full).replace(/(querés) conocé(?=\s|[?.,]|$)/gi,'$1 conocer').replace(/\.{2,}/g,'.').replace(/[ \t]{2,}/g,' ');
+  return String(value).trim().replace(/¡/g,'').replace(/!+/g,'.').replace(/¿([^¿?\n]+)\?/g,(full,sentence)=>/^(?:necesit(?:o|amos)\b|para\b.+\bnecesit(?:o|amos)\b)/i.test(sentence.trim())?sentence.trim()+'.':full).replace(/¿Elegí(?=\s)/g,'¿Elegís').replace(/o te ayudá(?=\s|[?.,]|$)/gi,'o te ayudo').replace(/(querés) conocé(?=\s|[?.,]|$)/gi,'$1 conocer').replace(/\.{2,}/g,'.').replace(/[ \t]{2,}/g,' ');
 }
 
 function respectExistingAppointment(text,{appointments=[],step}={}) {
@@ -184,15 +185,15 @@ export function naturalReply(answer,config,context={}) {
     .replace(/Escribí confirmar o no\./g,'¿Querés confirmar la operación o preferís conservarlo?')
     .replace(/Para modificarlo escribí cancelar o reprogramar\./g,'Contame si querés cambiarlo o cancelarlo.')
     .replace(/Escribí un código propio.*$/g,'Contame cuál de tus turnos querés modificar.');
-  if(answer.data?.step==='service')text+=' '+config.services.map(s=>s.name).join(', ')+'.';
   if(answer.data?.step==='time'&&answer.choices?.length){
     const times=[...new Set(answer.choices.map(c=>c.value).filter(t=>/^\d{2}:\d{2}$/.test(t)))];
     if(times.length){
       const day=answer.data.day?'el '+new Intl.DateTimeFormat('es-AR',{timeZone:config.timezone,dateStyle:'full'}).format(new Date(`${answer.data.day}T12:00:00${config.utcOffset}`)):'el día elegido';
       const previous=answer.intent==='faq'?text.split('\n\n')[0]+'\n\n':/ya no está disponible/.test(text)?'Ese horario ya no está disponible.\n\n':'';
-      text=`${previous}Para ${day}, tenemos estos horarios disponibles (hora de Argentina):\n${times.join(' · ')}.\n¿Cuál preferís?`;
+      const rows=[];for(let i=0;i<times.length;i+=3)rows.push(times.slice(i,i+3).join(' | '));
+      text=`${previous}Para ${day}, estos son los horarios disponibles (hora de Argentina):\n\n${rows.join('\n')}\n\n¿Cuál preferís? Elegí uno de los horarios de la tabla; todavía no reservamos el turno.`;
     }
   }
-  if((['cancel_id','reschedule_id'].includes(answer.data?.step)||text.startsWith('Elegí tu turno.'))&&answer.choices?.length)text+='\n'+answer.choices.map(c=>c.label).join('\n');
+  if(answer.choices?.length&&(['cancel_id','reschedule_id'].includes(answer.data?.step)||answer.choices.every(c=>/^[a-f0-9]{8}$/.test(c.value))))text+='\n'+answer.choices.map(c=>c.label).join('\n');
   return respectExistingAppointment(polishReply(text),{appointments:context.appointments,step:answer.data?.step});
 }

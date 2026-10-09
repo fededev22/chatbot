@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,copyFileSync,cpSync,rmSync} from 'node:fs';
+import {mkdtempSync,copyFileSync,cpSync,rmSync,readFileSync} from 'node:fs';
 import {join,resolve,dirname,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -31,6 +31,9 @@ for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}:
     const setup=await call('/api/auth/setup',{...fields,...await captcha()},{Authorization:'Bearer installation-test-only'});assert.equal(setup.status,200);assert.match(setup.headers.get('set-cookie'),/HttpOnly; SameSite=Strict/);assert.equal(setup.headers.get('set-cookie').includes('Secure;'),secure);if(secure)assert.ok(setup.headers.get('set-cookie').startsWith('__Host-dental_session='));const owner=await setup.json();installSession(setup,owner);
     assert.equal((await call('/api/dashboard')).status,200);
     assert.equal((await call('/api/config',{}, {'X-CSRF-Token':'incorrect'})).status,403);
+    const edited=(await (await call('/api/dashboard')).json()).config;edited.services[0].description='Descripción editable de prueba. Incluye la información definida por el negocio.';edited.services[0].price='';
+    assert.equal((await call('/api/config',edited)).status,200);
+    const stored=(await (await call('/api/dashboard')).json()).config.services[0];assert.equal(stored.description,edited.services[0].description);assert.equal(stored.price,'');assert.equal(JSON.parse(readFileSync(join(directory,'business.json'),'utf8')).services[0].description,stored.description);
     assert.equal((await call('/api/auth/setup',{},{Authorization:'Bearer installation-test-only'})).status,403);
     assert.equal((await call('/api/accounts')).status,200);
     assert.equal((await call('/api/ai')).status,404);

@@ -1,6 +1,6 @@
 import {safeMessage} from './core.mjs';
 
-const stages={service:'Eligiendo servicio',day:'Eligiendo fecha',time:'Eligiendo horario',name:'Ingresando nombre',phone:'Ingresando teléfono',consent:'Eligiendo recordatorios',confirm:'Esperando confirmación',cancel_id:'Eligiendo turno a cancelar',cancel_confirm:'Confirmando cancelación',reschedule_id:'Eligiendo turno a reprogramar'};
+const stages={service:'Eligiendo servicio',day:'Eligiendo fecha',time:'Eligiendo horario',name:'Ingresando nombre',phone:'Confirmando teléfono',consent:'Eligiendo recordatorios',confirm:'No confirmado · falta CONFIRMAR',cancel_id:'Eligiendo turno a cancelar',cancel_confirm:'Confirmando cancelación',reschedule_id:'Eligiendo turno a reprogramar'};
 const issues="('failed','blocked_window','blocked_template')";
 const scalar=(e,sql,...args)=>e.query(sql,...args)[0].n;
 
@@ -8,12 +8,13 @@ export function dashboardData(e,config) {
   const sessions=e.query("SELECT * FROM sessions WHERE id LIKE 'wa:%' ORDER BY updated DESC LIMIT 100").map(row=>{
     const state=JSON.parse(row.state), last=e.query('SELECT id,role,text,at FROM messages WHERE session=? ORDER BY id DESC LIMIT 1',row.id)[0];
     const patient=e.query('SELECT name FROM appointments WHERE session=? ORDER BY start DESC LIMIT 1',row.id)[0];
-    return {id:row.id,updated:row.updated,name:state.name||e.contact(row.id)?.name||patient?.name||`+${row.id.slice(3)}`,phone:row.id.slice(3),state,
+    return {id:row.id,updated:row.updated,name:state.name||e.contact(row.id)?.name||patient?.name||`+${row.id.slice(3)}`,phone:row.id.slice(3),state,appointmentCodes:e.query('SELECT id FROM appointments WHERE session=?',row.id).map(a=>a.id),
       status:state.paused?'human':state.step?'booking':'bot',stage:state.paused?'Recepción · bot pausado':stages[state.step]||'Asistente activo',last,
       unread:scalar(e,"SELECT count(*) n FROM messages WHERE session=? AND role='user' AND id>coalesce((SELECT message_id FROM session_reads WHERE session=?),0)",row.id,row.id),
       issues:scalar(e,`SELECT count(*) n FROM outbox WHERE session=? AND status IN ${issues}`,row.id)};
   });
-  return {config,sessions,appointments:e.query("SELECT * FROM appointments WHERE session LIKE 'wa:%' ORDER BY start DESC LIMIT 200"),
+  const pendingBookings=sessions.filter(s=>s.state.service&&s.state.day&&s.state.time&&s.state.step&&!s.state.step.startsWith('cancel')).map(s=>({session:s.id,name:s.name,phone:s.phone,service:s.state.service,day:s.state.day,time:s.state.time,step:s.state.step,change:!!s.state.old}));
+  return {config,sessions,pendingBookings,appointments:e.query("SELECT * FROM appointments WHERE session LIKE 'wa:%' ORDER BY start DESC LIMIT 200"),
     metrics:{conversations:scalar(e,"SELECT count(*) n FROM sessions WHERE id LIKE 'wa:%'"),
       unread:scalar(e,"SELECT count(*) n FROM sessions s WHERE id LIKE 'wa:%' AND EXISTS(SELECT 1 FROM messages m WHERE m.session=s.id AND m.role='user' AND m.id>coalesce((SELECT message_id FROM session_reads r WHERE r.session=s.id),0))"),
       handoffs:scalar(e,"SELECT count(*) n FROM sessions WHERE id LIKE 'wa:%' AND json_extract(state,'$.paused')=1"),

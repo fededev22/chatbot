@@ -41,9 +41,10 @@ export function interpret(text,config,state,now) {
   else if(!negative&&/\b(?:cancelar|anular)\b/.test(n)&&!['cancel_confirm','confirm','consent'].includes(state.step))command='cancelar';
   else if(!negative&&/\b(?:reprogramar|cambiar (?:mi |el )?(?:turno|cita)|mover (?:mi |el )?(?:turno|cita))\b/.test(n))command='reprogramar';
   else if(/^(?:mis turnos|mis citas)$/.test(n)||/\b(?:cuando|cual)\b.*\b(?:mi turno|mi cita|tengo turno)\b/.test(n))command='mis turnos';
-  else if(!negative&&(n==='agendar'||!state.step&&(/\b(?:reservar|agendar|sacar un turno|pedir un turno)\b/.test(n)||/\b(?:quiero|quisiera|necesito|me gustaria)\b/.test(n)&&(/\b(?:turno|cita)\b/.test(n)||service&&!/\b(?:cuanto|precio|costo|sale|cuesta|dura|duracion|informacion|saber|consultar|conocer)\b/.test(n)))))command='agendar';
+  else if(!negative&&(n==='agendar'||/^(?:quiero|quisiera|me gustaria)\s+(?:reservar?|agendar|sacar|pedir)\b/.test(n)||!state.step&&(/\b(?:reservar|agendar|sacar un turno|pedir un turno)\b/.test(n)||/\b(?:quiero|quisiera|necesito|me gustaria)\b/.test(n)&&(/\b(?:turno|cita)\b/.test(n)||service&&!/\b(?:cuanto|precio|costo|sale|cuesta|dura|duracion|informacion|saber|consultar|conocer)\b/.test(n)))))command='agendar';
   const yes=/^(?:si(?: por favor)?|acepto|confirmar|confirmo(?: el turno| la reserva| la cancelacion)?|si,? confirmo|dale,? confirm(?:o|a)|si,? cancelar)$/.test(n);
-  if(['confirm','cancel_confirm'].includes(state.step)&&yes)command='confirmar';
+  if(state.step==='confirm'&&n==='confirmar'||state.step==='cancel_confirm'&&yes)command='confirmar';
+  if(!state.step&&state.bookingOffer&&yes)command='agendar';
   if(state.step==='consent'){
     if(/^(?:no(?: gracias)?|sin recordatorios|no quiero (?:recibir )?recordatorios)$/.test(n))command='sin recordatorios';
     else if(yes||/^(?:si,? (?:quiero|acepto)(?: (?:los )?recordatorios)?|acepto recordatorios)$/.test(n))command='acepto';

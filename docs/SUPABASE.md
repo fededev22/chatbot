@@ -2,6 +2,8 @@
 
 El servidor identifica cada contacto por el número exacto recibido de WhatsApp. Conserva su nombre conocido, primer y último contacto y sus reservas. Un saludo de una persona con turnos futuros confirmados muestra sus turnos y ofrece consultarlos o modificarlos; no ofrece otra reserva automáticamente. Los turnos cancelados, reprogramados o pasados no cuentan como próximos. Una nueva reserva solicitada expresamente puede reutilizar el nombre conocido, pero exige nuevamente consentimiento para recordatorios y confirmación.
 
+Una reserva solo se guarda al recibir CONFIRMAR en el último paso, después de completar servicio, fecha, hora, nombre, teléfono y preferencia de recordatorios. NO descarta la solicitud. La agenda del panel distingue solicitudes pendientes de turnos confirmados; se actualiza automáticamente. Las consultas por código solo muestran reservas del remitente verificado: el nombre o un código ajeno nunca permiten acceder a los datos de otra persona. El panel del negocio permite buscar conversaciones por nombre, teléfono o código.
+
 La selección de horario se construye en el servidor con todos los horarios disponibles para el servicio y la fecha, considerando duración, descansos y reservas. La IA no redacta ni selecciona esa lista. Los textos no usan exclamaciones; se corrigen las afirmaciones interrogadas reconocidas y se descartan respuestas con signos de interrogación desbalanceados. Las instrucciones del modelo también exigen preguntas completas y buena conjugación; esto no sustituye una revisión editorial de los mensajes personalizados del negocio.
 
 ## Supabase

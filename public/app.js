@@ -32,7 +32,7 @@ function show(view) {
 }
 function renderList() {
   if(!dashboard)return;const query=$('search').value.trim().toLocaleLowerCase('es');
-  const sessions=dashboard.sessions.filter(s=>(filter==='all'||filter==='unread'&&s.unread>0||filter==='issues'&&s.issues>0||s.status===filter)&&`${s.name} ${s.phone} ${s.last?.text||''}`.toLocaleLowerCase('es').includes(query));$('conversation-list').replaceChildren();
+  const sessions=dashboard.sessions.filter(s=>(filter==='all'||filter==='unread'&&s.unread>0||filter==='issues'&&s.issues>0||s.status===filter)&&`${s.name} ${s.phone} ${(s.appointmentCodes||[]).join(' ')} ${s.last?.text||''}`.toLocaleLowerCase('es').includes(query));$('conversation-list').replaceChildren();
   for(const s of sessions) {
     const button=el('button',undefined,`conversation-row${s.id===selected?' selected':''}`);button.setAttribute('aria-pressed',String(s.id===selected));const avatar=el('span',s.name.startsWith('+')?'P':s.name.slice(0,1).toUpperCase(),'contact-avatar'),content=el('span',undefined,'row-content'),top=el('span',undefined,'row-top');top.append(el('strong',s.name),el('time',time(s.last?.at||s.updated)));
     const foot=el('span',undefined,'row-foot');foot.append(el('span',s.stage,`status-text ${s.status}`));if(s.unread)foot.append(el('span',s.unread,'unread-count'));if(s.issues)foot.append(el('span','!','issue-count'));
@@ -48,7 +48,7 @@ async function selectConversation(id) {
 function renderContact() {
   const s=dashboard?.sessions.find(s=>s.id===selected);$('no-selection').classList.toggle('hidden',!!s);$('selected-detail').classList.toggle('hidden',!s);if(!s)return;
   $('contact-name').textContent=s.name;$('contact-phone').textContent=`+${s.phone} · WhatsApp`;$('contact-avatar').textContent=s.name.startsWith('+')?'P':s.name.slice(0,1).toUpperCase();$('contact-stage').textContent=s.stage;$('contact-stage').className=`state ${s.status}`;
-  $('booking-progress').textContent=[s.state.service?service(s.state.service):'',s.state.day,s.state.time].filter(Boolean).join(' · ');$('takeover').textContent=s.state.paused?'Reactivar bot':'Pausar bot';$('takeover').disabled=acting;
+  $('booking-progress').textContent=[s.state.service?service(s.state.service):'',s.state.day,s.state.time,s.state.step==='confirm'?'El paciente debe escribir CONFIRMAR':''].filter(Boolean).join(' · ');$('takeover').textContent=s.state.paused?'Reactivar bot':'Pausar bot';$('takeover').disabled=acting;
   $('tracking-note').textContent=s.state.paused?'El bot está pausado. Gestioná el contacto con el paciente por el canal de recepción de la clínica.':'Historial de seguimiento. Los pacientes conversan con el asistente por WhatsApp.';
 }
 function renderHistory() {
@@ -71,13 +71,15 @@ async function loadEarlier() {
   const id=selected,before=history[0]?.id,version=detailVersion;if(!id||!before)return;try{const d=await api(`conversation?session=${encodeURIComponent(id)}&before=${before}`);if(id!==selected||version!==detailVersion)return;const height=$('chat-log').scrollHeight,top=$('chat-log').scrollTop;mergeHistory(d.messages);hasMore=d.hasMore;renderHistory();$('chat-log').scrollTop=top+$('chat-log').scrollHeight-height;}catch(e){notice(e.message);}
 }
 function renderActivity(d) {
-  $('patient-appointments').replaceChildren(el('h3','Turnos del paciente'));for(const a of d.appointments)$('patient-appointments').append(el('p',`${service(a.service)} · ${date(a.start)} · ${labels[a.status]||a.status}`));if(!d.appointments.length)$('patient-appointments').append(el('p','Sin reservas registradas.'));
+  $('patient-appointments').replaceChildren(el('h3','Turnos del paciente'));for(const a of d.appointments)$('patient-appointments').append(el('p',`${service(a.service)} · ${date(a.start)} · ${labels[a.status]||a.status} · Código: ${a.id}`));if(!d.appointments.length)$('patient-appointments').append(el('p','Sin turnos confirmados. Una solicitud pendiente todavía no ocupa un horario.'));
   $('delivery-list').replaceChildren(el('h3','Últimos envíos'));for(const o of d.outbox){const row=el('div',undefined,'delivery-row');row.append(el('p',o.text),el('span',`${date(o.created)} · ${labels[o.status]||o.status}`,'muted'));if(o.last_error)row.append(el('small',o.last_error,'error'));$('delivery-list').append(row);}if(!d.outbox.length)$('delivery-list').append(el('p','Sin envíos registrados.'));
 }
 function renderMetrics() {for(const key of ['conversations','unread','handoffs','bookings'])$(`metric-${key}`).textContent=dashboard.metrics[key];$('badge').textContent=dashboard.metrics.handoffs;}
 function renderAgenda() {
-  $('appointment-rows').replaceChildren();for(const a of dashboard.appointments){const row=el('tr');row.append(el('td',a.name),el('td',service(a.service)),el('td',date(a.start)),el('td',a.professional));const status=el('td');status.append(el('span',`${labels[a.status]||a.status}${a.attendance?' · Asistirá':''}`,'state'));const cell=el('td'),link=el('button','Ver chat ↗','quiet');link.onclick=()=>{show('inbox');selectConversation(a.session);};cell.append(link);row.append(status,cell);$('appointment-rows').append(row);}
-  if(!dashboard.appointments.length){const row=el('tr'),cell=el('td','Todavía no hay turnos reservados por WhatsApp.');cell.colSpan=6;row.append(cell);$('appointment-rows').append(row);}
+  $('appointment-rows').replaceChildren();
+  for(const a of dashboard.pendingBookings||[]){const row=el('tr');row.append(el('td',a.name),el('td',service(a.service)),el('td',`${a.day} · ${a.time}`),el('td','Se asigna al confirmar'));const status=el('td');status.append(el('span',`${a.change?'Cambio pendiente':a.step==='confirm'?'No confirmado · falta CONFIRMAR':'Datos pendientes'}`,'state'));const cell=el('td'),link=el('button','Ver chat ↗','quiet');link.onclick=()=>{show('inbox');selectConversation(a.session);};cell.append(link);row.append(status,el('td','Sin código todavía'),cell);$('appointment-rows').append(row);}
+  for(const a of dashboard.appointments){const row=el('tr');row.append(el('td',a.name),el('td',service(a.service)),el('td',date(a.start)),el('td',a.professional));const status=el('td');status.append(el('span',`${labels[a.status]||a.status}${a.attendance?' · Asistencia confirmada':''}`,'state'));const cell=el('td'),link=el('button','Ver chat ↗','quiet');link.onclick=()=>{show('inbox');selectConversation(a.session);};cell.append(link);row.append(status,el('td',a.id),cell);$('appointment-rows').append(row);}
+  if(!dashboard.appointments.length&&!dashboard.pendingBookings?.length){const row=el('tr'),cell=el('td','Todavía no hay turnos ni solicitudes por WhatsApp.');cell.colSpan=7;row.append(cell);$('appointment-rows').append(row);}
 }
 async function refresh() {
   if(!token||refreshing)return;refreshing=true;const epoch=authEpoch;try{

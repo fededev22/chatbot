@@ -10,10 +10,10 @@ test('frase completa selecciona servicio, fecha y horario sin reservar hasta con
   const e=engine();try{
     const r=e.handle('wa:5491112345678','Hola, quiero un turno para una limpieza mañana a las 10','whatsapp');
     assert.equal(r.data.service,'limpieza');assert.equal(r.data.day,'2026-10-08');assert.equal(r.data.time,'10:00');assert.equal(r.data.step,'name');
-    e.handle('wa:5491112345678','Me llamo Ana Pérez','whatsapp');e.handle('wa:5491112345678','no gracias','whatsapp');
+    e.handle('wa:5491112345678','Me llamo Ana Pérez','whatsapp');e.handle('wa:5491112345678','SÍ','whatsapp');e.handle('wa:5491112345678','no gracias','whatsapp');
     assert.equal(e.state('wa:5491112345678').step,'confirm');assert.equal(e.state('wa:5491112345678').consent,false);assert.equal(e.query('SELECT * FROM appointments').length,0);
     e.handle('wa:5491112345678','no confirmo todavía','whatsapp');assert.equal(e.query('SELECT * FROM appointments').length,0);
-    assert.match(e.handle('wa:5491112345678','Sí, confirmo','whatsapp').reply,/Turno confirmado/);const a=e.query('SELECT * FROM appointments')[0];assert.equal(a.name,'Ana Pérez');assert.equal(a.phone,'5491112345678');assert.equal(a.consent,0);
+    assert.match(e.handle('wa:5491112345678','CONFIRMAR','whatsapp').reply,/Turno confirmado/);const a=e.query('SELECT * FROM appointments')[0];assert.equal(a.name,'Ana Pérez');assert.equal(a.phone,'5491112345678');assert.equal(a.consent,0);
   }finally{e.db.close();}
 });
 test('preguntas intercaladas conservan la reserva y nunca se guardan como nombre',()=>{
@@ -60,7 +60,7 @@ test('preguntar por un servicio no inicia una reserva y el saludo admite convers
 });
 test('cancelación natural sigue exigiendo código propio y confirmación',()=>{
   const e=engine();try{
-    for(const t of ['Quiero una limpieza mañana a las 10','Ana Pérez','+5491112345678','Sí por favor','confirmo'])e.handle('demo:a',t);
+    for(const t of ['Quiero una limpieza mañana a las 10','Ana Pérez','+5491112345678','Sí por favor','CONFIRMAR'])e.handle('demo:a',t);
     const a=e.query('SELECT * FROM appointments')[0];e.handle('demo:b','Quiero anular mi turno');e.handle('demo:b',`mi código es ${a.id}`);assert.equal(e.query('SELECT * FROM appointments')[0].status,'confirmed');
     e.handle('demo:a','Quiero cancelar mi turno');e.handle('demo:a',`el código es ${a.id}`);assert.equal(e.query('SELECT * FROM appointments')[0].status,'confirmed');
     e.handle('demo:a','Sí, cancelar');assert.equal(e.query('SELECT * FROM appointments')[0].status,'cancelled');

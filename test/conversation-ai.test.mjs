@@ -89,9 +89,9 @@ test('identidad y confirmación de reservas quedan locales; no se reserva por un
   let calls=0;const bodies=[];const {e,chat}=fixture(async(url,request)=>{calls++;bodies.push(request.body);return response('¿Cuál es tu nombre y apellido?');});
   let id=0;async function send(text){chat.receive(message(String(++id),text),session);await chat.drain();}
   try{
-    await send('quiero una limpieza mañana a las 10');assert.equal(calls,1);assert.equal(e.query('SELECT * FROM appointments').length,0);
-    await send('Ana Pérez');await send('sí');assert.equal(calls,1);await send('sí, confirmo');
-    assert.equal(e.query('SELECT * FROM appointments').length,1);assert.equal(calls,1);assert.ok(bodies.every(b=>!b.includes('Ana Pérez')&&!b.includes(phone)));
+    await send('quiero una limpieza mañana a las 10');assert.equal(calls,0);assert.equal(e.query('SELECT * FROM appointments').length,0);
+    await send('Ana Pérez');await send('sí');await send('sí');assert.equal(calls,0);await send('CONFIRMAR');
+    assert.equal(e.query('SELECT * FROM appointments').length,1);assert.equal(calls,0);assert.ok(bodies.every(b=>!b.includes('Ana Pérez')&&!b.includes(phone)));
     assert.ok(!e.query('SELECT text FROM outbox').some(m=>/Escribí cancelar|confirmar:|agendar:/.test(m.text)));
   }finally{e.db.close();}
 });
@@ -131,12 +131,12 @@ test('fallos de proveedor y respuestas inventadas usan alternativa natural sin e
 test('recupera un trabajo preparado sin repetir una operación ya aplicada ni duplicar la salida',async()=>{
   let calls=0;const {e,chat}=fixture(async()=>{calls++;return response('Respuesta.');});
   try{
-    chat.receive(message('one','sí, confirmo'),session);
+    chat.receive(message('one','CONFIRMAR'),session);
     e.save(session,{step:'confirm',service:'limpieza',day:'2026-10-09',time:'10:00',name:'Ana Pérez',phone,consent:false});
-    const before=e.state(session),answer=e.handle(session,'sí, confirmo','whatsapp',{recordUser:false});
+    const before=e.state(session),answer=e.handle(session,'CONFIRMAR','whatsapp',{recordUser:false});
     const messageId=e.query("SELECT id FROM messages WHERE role='bot' ORDER BY id DESC LIMIT 1")[0].id;
     const outboxId=e.queue(session,answer.reply,false,[],null,{messageId});e.run("UPDATE outbox SET status='generating' WHERE id=?",outboxId);
-    e.run("UPDATE conversation_jobs SET status='working',result=?,message_id=?,outbox_id=? WHERE id='one'",JSON.stringify({answer,before,input:'sí, confirmo'}),messageId,outboxId);
+    e.run("UPDATE conversation_jobs SET status='working',result=?,message_id=?,outbox_id=? WHERE id='one'",JSON.stringify({answer,before,input:'CONFIRMAR'}),messageId,outboxId);
     const recovered=createWhatsAppConversations(e,()=>config,settings,{mode:'trial',trialRecipients:[phone],clock,request:async()=>{calls++;return response('Respuesta.');}});
     await recovered.drain();await recovered.drain();assert.equal(calls,0);assert.equal(e.query('SELECT * FROM appointments').length,1);assert.equal(e.query('SELECT * FROM outbox').length,1);assert.equal(e.query('SELECT status FROM outbox')[0].status,'pending');assert.equal(e.query('SELECT status FROM conversation_jobs')[0].status,'done');
   }finally{e.db.close();}

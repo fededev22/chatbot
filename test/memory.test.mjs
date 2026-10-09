@@ -13,7 +13,8 @@ const message=(id,text)=>({id,type:'text',text:{body:text}});
 function book(e,id=session,name='Ana Pérez',time='10:00'){
   e.handle(id,'quiero una limpieza mañana a las '+time,'whatsapp');
   if(e.state(id).step==='name')e.handle(id,name,'whatsapp');
-  e.handle(id,'sin recordatorios','whatsapp');e.handle(id,'sí, confirmo','whatsapp');
+  if(e.state(id).step==='phone')e.handle(id,'SÍ','whatsapp');
+  e.handle(id,'sin recordatorios','whatsapp');e.handle(id,'CONFIRMAR','whatsapp');
   assert.equal(e.state(id).step,undefined);
 }
 function remote(){
