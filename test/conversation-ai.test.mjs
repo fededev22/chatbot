@@ -15,6 +15,20 @@ function fixture(request,options={}) {
 }
 const message=(id,text)=>({id,type:'text',text:{body:text}});
 
+test('saludo de WhatsApp ofrece servicios y reservas aun sin IA, usando la información editable vigente',async()=>{
+  let current={...config,name:'Clínica de prueba',bot:{...config.bot,welcome:'¡Hola! Te damos la bienvenida a {nombre_clinica}.'}};
+  const e=createEngine(':memory:',()=>current,clock);
+  const chat=createWhatsAppConversations(e,()=>current,settings,{mode:'off',clock,request:async()=>{throw Error('No debe llamar al proveedor.');}});
+  const send=async(id)=>{chat.receive(message(id,'hola'),session);await chat.drain();return e.query("SELECT text FROM messages WHERE role='bot' ORDER BY id DESC LIMIT 1")[0].text;};
+  try{
+    let reply=await send('one');assert.match(reply,/Clínica de prueba/);assert.match(reply,/reservar un turno, conocer nuestros servicios o consultar sobre la clínica/);assert.equal((reply.match(/\?/g)||[]).length,1);
+    current={...current,name:'Clínica actualizada',bot:{...current.bot,welcome:'Bienvenido a {nombre_clinica}. ¿Te ayudamos a organizar tu visita?'}};
+    reply=await send('two');assert.equal(reply,'Bienvenido a Clínica actualizada. ¿Te ayudamos a organizar tu visita?');
+    e.save(session,{step:'name',service:'limpieza',day:'2026-10-09',time:'10:00'});
+    reply=await send('three');assert.match(reply,/nombre y apellido/);assert.ok(!reply.includes('conocer nuestros servicios'));
+  }finally{e.db.close();}
+});
+
 test('WhatsApp usa IA para conversar, conserva contexto y no envía comandos ni duplica webhooks',async()=>{
   const bodies=[];const {e,chat}=fixture(async(url,request)=>{assert.equal(url,'https://integrate.api.nvidia.com/v1/chat/completions');bodies.push(JSON.parse(request.body));return response(bodies.length===1?'¡Hola! ¿Cómo viene tu día?':'¡Qué bueno! Contame qué te gustaría saber.');});
   try{
