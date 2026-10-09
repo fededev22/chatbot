@@ -10,6 +10,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {createAuth,authError} from './auth.mjs';
 import {createAISettings} from './ai.mjs';
 import {createWhatsAppConversations} from './conversation-ai.mjs';
+import {createSupabaseMemory} from './supabase-memory.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 mkdirSync(`${root}data`,{recursive:true});
 let config=validateConfig(JSON.parse(readFileSync(`${root}business.json`,'utf8')));
@@ -17,7 +18,9 @@ let configUpdatedAt=statSync(`${root}business.json`).mtime.toISOString();
 const engine=createEngine(`${root}data/clinic.sqlite`,()=>config);
 const env=process.env, host=env.HOST||'127.0.0.1', port=Number(env.PORT||3000);
 const aiSettings=createAISettings(`${root}data/ai.json`);
-const conversations=createWhatsAppConversations(engine,()=>config,aiSettings,{mode:env.AI_WHATSAPP_MODE||'off',trialRecipients:(env.AI_TEST_RECIPIENTS||'').split(',').map(s=>s.trim()).filter(Boolean)});
+const memory=createSupabaseMemory(engine,env);
+await memory.bootstrap();
+const conversations=createWhatsAppConversations(engine,()=>config,aiSettings,{mode:env.AI_WHATSAPP_MODE||'off',trialRecipients:(env.AI_TEST_RECIPIENTS||'').split(',').map(s=>s.trim()).filter(Boolean),memory});
 const localHost=['127.0.0.1','localhost','::1'].includes(host);
 if(!localHost&&(!env.PANEL_ORIGIN?.startsWith('https://')||!env.ADMIN_TOKEN))throw Error('El panel remoto requiere PANEL_ORIGIN HTTPS y clave privada de instalación.');
 const authDb=new DatabaseSync(`${root}data/accounts.sqlite`),auth=createAuth(authDb);
@@ -138,6 +141,7 @@ async function flush(){
 }
 setInterval(()=>{try{engine.remind();}catch(e){console.error('Recordatorios:',e.message);}void flush();},15000).unref();
 setInterval(()=>void conversations.drain().then(()=>void flush()),2000).unref();
+setInterval(()=>void memory.flush(),15000).unref();
 void conversations.drain().then(()=>void flush());
 server.listen(port,host,()=>console.log(`Clínica dental: http://${host}:${port} · WhatsApp ${waEnabled?'configurado':'demo local'}`));
 process.on('SIGTERM',()=>server.close(()=>{engine.db.close();authDb.close();process.exit(0);}));

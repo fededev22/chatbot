@@ -33,6 +33,8 @@ npm test
 - Consultas de precio y duración con contexto del servicio; preguntas durante la reserva conservan los datos pendientes. «Me llamo Ana Pérez» y respuestas «sí» / «no gracias» para recordatorios.
 - Reserva, reprogramación y cancelación con confirmación explícita.
 - Validación de disponibilidad en SQLite, duración y descansos por profesional.
+- Lista completa de horarios disponibles para la fecha y servicio elegidos, sin horarios ya ocupados.
+- Memoria por número de WhatsApp: nombre conocido y turnos vigentes, con persistencia opcional en Supabase. Si la persona ya tiene turno, ofrece consultarlo o modificarlo.
 - Horarios de Argentina; fechas futuras hasta 90 días. Fines de semana cerrados por defecto.
 - Nombre, teléfono, servicio, profesional, fecha, estado y consentimiento.
 - Derivación, pausa y reactivación del bot; historial de seguimiento para el negocio.
@@ -46,6 +48,8 @@ npm test
 WhatsApp puede conversar con IA, mantener contexto y responder con los datos guardados de la clínica, sin menús ni instrucciones para escribir comandos. La integración se activa desde el servidor; el modo inicial está desactivado. NVIDIA gratuita se limita a participantes autorizados de la prueba. Las reservas y la disponibilidad siguen usando el motor local y una agenda SQLite, **sin Google Calendar**; la IA no puede confirmar ni modificar turnos. El panel no incluye chat de prueba ni envío manual de mensajes. Ante un fallo de la API se usa la respuesta local. Las fechas se muestran explícitamente antes de confirmar; «el viernes» se interpreta como la próxima ocurrencia, incluido hoy si es viernes. El contenido médico no debe ingresarse: la omisión por palabras clave no constituye un filtro completo de datos sensibles.
 
 ## Proveedor de IA
+
+La conexión opcional a Supabase guarda y recupera contactos y turnos. La configuración privada, el esquema y los límites de recuperación están en [docs/SUPABASE.md](docs/SUPABASE.md). Las cuentas y el historial de mensajes conservan su persistencia local; se mantiene un único servidor activo para la clínica.
 
 El proveedor de IA se administra únicamente desde el servidor. El panel del negocio no muestra proveedores, modelos ni claves y no ofrece una API para consultar o modificar esa configuración. El código está en `ai.mjs` y `conversation-ai.mjs`; las instrucciones de activación y los límites del modo de prueba están en [docs/AI-CONFIG.md](docs/AI-CONFIG.md). Las claves de `data/ai.json` y los números autorizados de `.env` permanecen privados y excluidos de GitHub.
 
@@ -107,6 +111,7 @@ Codex tiene instrucciones para hacer commit y push al finalizar los cambios soli
 - `language.mjs`: interpretación local de frases, fechas, horas y contexto de consultas.
 - `ai.mjs`: configuración privada de NVIDIA/OpenRouter y funciones de evaluación de IA para pruebas de desarrollo.
 - `conversation-ai.mjs`: conversación con IA en WhatsApp, contexto, trabajos persistentes y recuperación al reiniciar.
+- `supabase-memory.mjs`: memoria remota de contactos y turnos, restauración y cola persistente de sincronización.
 - `server.mjs`: servidor HTTP, acceso, webhook y envíos WhatsApp.
 - `reception.mjs`: bandeja privada, lecturas, historial, atención humana y estados de entrega.
 - `bot-info.mjs`: mensajes editables y respuestas vinculadas a los datos actuales del negocio.

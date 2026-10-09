@@ -17,3 +17,4 @@ dist/
 *.pfx
 business.json.tmp
 docs/*.png
+supabase/.temp/

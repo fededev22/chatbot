@@ -23,7 +23,8 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
     CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, session TEXT, role TEXT, text TEXT, at TEXT);
     CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, session TEXT, text TEXT, template INTEGER DEFAULT 0, params TEXT, status TEXT, attempts INTEGER DEFAULT 0, next_try INTEGER DEFAULT 0, created TEXT, appointment TEXT);
     CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY);
-    CREATE TABLE IF NOT EXISTS reminders (appointment TEXT, hours INTEGER, PRIMARY KEY(appointment,hours));`);
+    CREATE TABLE IF NOT EXISTS reminders (appointment TEXT, hours INTEGER, PRIMARY KEY(appointment,hours));
+    CREATE TABLE IF NOT EXISTS contacts (phone TEXT PRIMARY KEY, name TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, updated TEXT NOT NULL);`);
   for (const [name,type] of [['message_id','INTEGER'],['meta_id','TEXT'],['last_error','TEXT'],['role',"TEXT DEFAULT 'bot'"]]) {
     if (!db.prepare('PRAGMA table_info(outbox)').all().some(c=>c.name===name)) db.exec(`ALTER TABLE outbox ADD COLUMN ${name} ${type}`);
   }
@@ -33,8 +34,19 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
     CREATE TABLE IF NOT EXISTS delivery_events (id TEXT PRIMARY KEY, status TEXT, error TEXT);`);
   const query = (sql,...args) => db.prepare(sql).all(...args);
   const run = (sql,...args) => db.prepare(sql).run(...args);
+  db.exec(`INSERT OR IGNORE INTO contacts(phone,name,first_seen,last_seen,updated)
+    SELECT substr(s.id,4),(SELECT name FROM appointments a WHERE a.session=s.id ORDER BY start DESC LIMIT 1),
+      coalesce((SELECT min(at) FROM messages m WHERE m.session=s.id),s.updated),s.updated,s.updated
+    FROM sessions s WHERE s.id LIKE 'wa:%';`);
   function state(id) { return JSON.parse(db.prepare('SELECT state FROM sessions WHERE id=?').get(id)?.state || '{}'); }
   function save(id,s) { run('INSERT INTO sessions VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state, updated=excluded.updated',id,JSON.stringify(s),clock().toISOString()); }
+  function contact(session) {return /^wa:\d{10,15}$/.test(session)?query('SELECT * FROM contacts WHERE phone=?',session.slice(3))[0]||null:null;}
+  function remember(session,s=state(session)) {
+    if(!/^wa:\d{10,15}$/.test(session))return;
+    const name=s.name||query('SELECT name FROM appointments WHERE session=? ORDER BY start DESC LIMIT 1',session)[0]?.name||null,at=clock().toISOString();
+    run('INSERT INTO contacts VALUES(?,?,?,?,?) ON CONFLICT(phone) DO UPDATE SET name=coalesce(excluded.name,contacts.name),last_seen=excluded.last_seen,updated=excluded.updated',session.slice(3),name,at,at,at);
+  }
+  function upcoming(session) {return query("SELECT * FROM appointments WHERE session=? AND status='confirmed' AND start>? ORDER BY start",session,clock().toISOString());}
   function slots(serviceId, day) {
     const c=getConfig(), service=c.services.find(s=>s.id===serviceId);
     if (!service || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
@@ -61,6 +73,7 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
     n=message.command||message.n;
     const result=()=>{
       save(session,s);
+      remember(session,s);
       if(recordUser)run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',safeMessage(text),clock().toISOString());
       run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'bot',reply,clock().toISOString());
       return {reply,intent,data:s,choices};
@@ -79,8 +92,8 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       if(!time)return;
       const slot=available.find(x=>x.time===time);
       if(!slot){reply=`A las ${time} no hay disponibilidad para el ${day}. Elegí otro horario de la lista.`;return;}
-      s.time=time;s.step=s.old?'confirm':'name';choices=s.old?confirmChoices():[];
-      reply=s.old?summary(s,c):'¿Cuál es tu nombre y apellido? No envíes datos médicos.';
+      s.time=time;s.step=s.old?'confirm':s.name?(channel==='whatsapp'?'consent':'phone'):'name';choices=s.old?confirmChoices():[];
+      reply=s.old?summary(s,c):s.step==='consent'?'¿Querés recibir recordatorios de este turno por WhatsApp?':s.step==='phone'?prompts.phone:'¿Cuál es tu nombre y apellido? No envíes datos médicos.';
     };
     if (s.paused) { reply='Recepción tiene tu conversación pendiente. El bot está pausado hasta que una persona lo reactive.'; intent='humano'; return result(); }
     if (n==='humano' || safeMessage(text)!==text) {
@@ -95,7 +108,7 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       choices=appointments.map(a=>({label:`${c.services.find(x=>x.id===a.service)?.name || a.service} · ${formatDate(a.start)}`,value:a.id})); return result();
     }
     if (n==='agendar' || !s.step && ['turno','cita'].includes(n)) {
-      s={}; intent='agendar';
+      s=channel==='whatsapp'&&contact(session)?.name?{name:contact(session).name,phone:session.slice(3)}:{}; intent='agendar';
       if(message.service){s.service=message.service.id;advance();}
       else {if(message.day)s.requestDay=message.day;if(message.time)s.requestTime=message.time;services();}
       return result();
@@ -131,8 +144,8 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
         advance();
       } else if(s.step==='time') {
         const slot=slots(s.service,s.day).find(x=>x.time===message.time);
-        if(!slot) {reply='Ese horario ya no está disponible. Elegí otro de la lista.'; choices=slots(s.service,s.day).map(x=>({label:x.time,value:x.time}));}
-        else {s.time=slot.time; s.step=s.old?'confirm':'name'; reply=s.old?summary(s,c):'¿Cuál es tu nombre y apellido? No envíes datos médicos.'; if(s.old) choices=confirmChoices();}
+        if(!slot) {reply='Ese horario ya no está disponible. Elegí otro de la lista.'; choices=slots(s.service,s.day).map(x=>({label:x.time,value:x.time}));if(!choices.length){s.step='day';delete s.time;reply='Ya no quedan horarios disponibles para ese día. ¿Qué otra fecha preferís?';}}
+        else {s.time=slot.time;s.step=s.old?'confirm':s.name?(channel==='whatsapp'?'consent':'phone'):'name';reply=s.old?summary(s,c):s.step==='consent'?'¿Querés recibir recordatorios de este turno por WhatsApp?':s.step==='phone'?prompts.phone:'¿Cuál es tu nombre y apellido? No envíes datos médicos.';if(s.old)choices=confirmChoices();}
       } else if(s.step==='name') {
         if(message.name.length<3 || message.name.length>100 || !/^[\p{L}\p{M}]+(?:[ '\u2019-][\p{L}\p{M}]+)+$/u.test(message.name)) reply='Ingresá tu nombre y apellido, de 3 a 100 caracteres.';
         else {s.name=message.name;s.step=channel==='whatsapp'?'consent':'phone'; if(channel==='whatsapp') s.phone=session.slice(3); reply=channel==='whatsapp'?'¿Querés recibir recordatorios de este turno por WhatsApp? Respondé sí o sin recordatorios.':'¿Cuál es tu teléfono? Incluí código de país, por ejemplo +5491112345678.';}
@@ -182,7 +195,7 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
       }
     }
   }
-  return {db,query,run,state,save,slots,handle,queue,remind};
+  return {db,query,run,state,save,slots,handle,queue,remind,contact,remember,upcoming};
 }
 export function formatDate(s) {return new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'medium',timeStyle:'short'}).format(new Date(s));}
 function confirmChoices(){return [{label:'Confirmar turno',value:'confirmar'},{label:'Descartar',value:'no'}];}

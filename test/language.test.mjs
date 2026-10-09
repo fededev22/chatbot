@@ -42,6 +42,7 @@ test('fechas naturales usan Argentina y los horarios inválidos conservan la sel
   assert.equal(naturalDay('el viernes a las 10 de la mañana',now),'2026-10-09');assert.equal(naturalDay('el viernes de la próxima semana',now),'2026-10-16');
   assert.equal(naturalDay('mañana',new Date('2026-10-08T01:00:00Z')),'2026-10-08');assert.equal(naturalDay('a las 10 de la mañana',now),null);
   assert.equal(naturalTime('a las 3 de la tarde'),'15:00');assert.equal(naturalTime('25:00'),null);
+  assert.equal(naturalTime('mañana a las 12'),'12:00');assert.equal(naturalTime('a las 12 am'),'00:00');assert.equal(naturalTime('a las 12 de la mañana'),'00:00');
   const e=engine();try{
     const closed=e.handle('demo:a','Quiero reservar una limpieza el sábado');assert.equal(closed.data.step,'day');assert.equal(e.query('SELECT * FROM appointments').length,0);
     e.handle('demo:a','mañana a las 25');assert.equal(e.state('demo:a').step,'time');e.handle('demo:a','a las 10');assert.equal(e.state('demo:a').step,'name');

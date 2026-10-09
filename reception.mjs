@@ -8,7 +8,7 @@ export function dashboardData(e,config) {
   const sessions=e.query("SELECT * FROM sessions WHERE id LIKE 'wa:%' ORDER BY updated DESC LIMIT 100").map(row=>{
     const state=JSON.parse(row.state), last=e.query('SELECT id,role,text,at FROM messages WHERE session=? ORDER BY id DESC LIMIT 1',row.id)[0];
     const patient=e.query('SELECT name FROM appointments WHERE session=? ORDER BY start DESC LIMIT 1',row.id)[0];
-    return {id:row.id,updated:row.updated,name:state.name||patient?.name||`+${row.id.slice(3)}`,phone:row.id.slice(3),state,
+    return {id:row.id,updated:row.updated,name:state.name||e.contact(row.id)?.name||patient?.name||`+${row.id.slice(3)}`,phone:row.id.slice(3),state,
       status:state.paused?'human':state.step?'booking':'bot',stage:state.paused?'Recepción · bot pausado':stages[state.step]||'Asistente activo',last,
       unread:scalar(e,"SELECT count(*) n FROM messages WHERE session=? AND role='user' AND id>coalesce((SELECT message_id FROM session_reads WHERE session=?),0)",row.id,row.id),
       issues:scalar(e,`SELECT count(*) n FROM outbox WHERE session=? AND status IN ${issues}`,row.id)};

@@ -28,7 +28,7 @@ export function naturalTime(text) {
   if(!m){m=n.match(/^(\d{1,2})(?:\s*(?:hs?|horas?))?$/)||n.match(/\ba las?\s+(\d{1,2})(?:\s*(?:hs?|horas?))?\b/);if(m)h=Number(m[1]);}
   if(h===null)return null;
   if(/\b(?:tarde|noche|pm)\b/.test(n)&&h<12)h+=12;
-  if(/\b(?:am|manana)\b/.test(n)&&h===12)h=0;
+  if(/\b(?:am|de la manana|por la manana)\b/.test(n)&&h===12)h=0;
   return h>=0&&h<24&&minute<60?`${String(h).padStart(2,'0')}:${String(minute).padStart(2,'0')}`:null;
 }
 export function interpret(text,config,state,now) {
