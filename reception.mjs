@@ -1,3 +1,4 @@
+import {authError} from './auth.mjs';
 import {safeMessage} from './core.mjs';
 
 const stages={service:'Eligiendo servicio',day:'Eligiendo fecha',time:'Eligiendo horario',name:'Ingresando nombre',phone:'Confirmando teléfono',consent:'Eligiendo recordatorios',confirm:'No confirmado · falta CONFIRMAR',cancel_id:'Eligiendo turno a cancelar',cancel_confirm:'Confirmando cancelación',reschedule_id:'Eligiendo turno a reprogramar'};
@@ -24,12 +25,12 @@ export function dashboardData(e,config) {
 }
 
 function validSession(e,id) {
-  if(typeof id!=='string'||!/^wa:\d{10,15}$/.test(id)||!e.query('SELECT 1 FROM sessions WHERE id=?',id).length) throw Error('Conversación de WhatsApp inexistente.');
+  if(typeof id!=='string'||!/^wa:\d{10,15}$/.test(id)||!e.query('SELECT 1 FROM sessions WHERE id=?',id).length) throw authError('Conversación de WhatsApp inexistente.');
 }
 
 export function conversationData(e,id,before) {
   validSession(e,id);
-  if(before!==undefined&&(!Number.isSafeInteger(before)||before<1)) throw Error('Página inválida.');
+  if(before!==undefined&&(!Number.isSafeInteger(before)||before<1)) throw authError('Página inválida.');
   const messages=e.query(`SELECT m.id,m.role,m.text,m.at,o.status,o.last_error FROM messages m
     LEFT JOIN outbox o ON o.message_id=m.id WHERE m.session=? AND m.id<? ORDER BY m.id DESC LIMIT 81`,id,before||Number.MAX_SAFE_INTEGER);
   const hasMore=messages.length>80;
@@ -42,7 +43,7 @@ export function conversationData(e,id,before) {
 
 export function markRead(e,id,messageId) {
   validSession(e,id);
-  if(!Number.isSafeInteger(messageId)||!e.query("SELECT 1 FROM messages WHERE id=? AND session=? AND role='user'",messageId,id).length) throw Error('Mensaje inválido.');
+  if(!Number.isSafeInteger(messageId)||!e.query("SELECT 1 FROM messages WHERE id=? AND session=? AND role='user'",messageId,id).length) throw authError('Mensaje inválido.');
   e.run('INSERT INTO session_reads VALUES(?,?) ON CONFLICT(session) DO UPDATE SET message_id=max(message_id,excluded.message_id)',id,messageId);
 }
 
@@ -58,15 +59,15 @@ export function humanAction(e,data,enabled,now=new Date()) {
       delete state.paused;
       e.save(data.session,state);
     } else if(data.action==='reply') {
-      if(!state.paused) throw Error('Tomá la atención antes de responder.');
-      if(!enabled) throw Error('WhatsApp no está configurado.');
-      if(typeof data.text!=='string'||!data.text.trim()||data.text.length>2000) throw Error('Escribí una respuesta de hasta 2000 caracteres.');
+      if(!state.paused) throw authError('Tomá la atención antes de responder.');
+      if(!enabled) throw authError('WhatsApp no está configurado.');
+      if(typeof data.text!=='string'||!data.text.trim()||data.text.length>2000) throw authError('Escribí una respuesta de hasta 2000 caracteres.');
       const last=e.query("SELECT at FROM messages WHERE session=? AND role='user' ORDER BY id DESC LIMIT 1",data.session)[0];
-      if(!last||now-new Date(last.at)>24*3600000) throw Error('Pasaron 24 horas desde el último mensaje del paciente. Esperá un nuevo mensaje para responder desde aquí.');
+      if(!last||now-new Date(last.at)>24*3600000) throw authError('Pasaron 24 horas desde el último mensaje del paciente. Esperá un nuevo mensaje para responder desde aquí.');
       const text=data.text.trim(),messageId=Number(e.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',data.session,'human',safeMessage(text),now.toISOString()).lastInsertRowid);
       e.queue(data.session,text,false,[],null,{role:'human',messageId});
       e.save(data.session,state);
-    } else throw Error('Acción inválida.');
+    } else throw authError('Acción inválida.');
     e.db.exec('COMMIT');
   } catch(error) {e.db.exec('ROLLBACK');throw error;}
 }

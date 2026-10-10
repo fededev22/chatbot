@@ -11,6 +11,7 @@ import {createAuth,authError} from './auth.mjs';
 import {createAISettings} from './ai.mjs';
 import {createWhatsAppConversations} from './conversation-ai.mjs';
 import {createSupabaseMemory} from './supabase-memory.mjs';
+import {parseObject,webhookEvents} from './security.mjs';
 const root=fileURLToPath(new URL('.',import.meta.url));
 mkdirSync(`${root}data`,{recursive:true});
 let config=validateConfig(JSON.parse(readFileSync(`${root}business.json`,'utf8')));
@@ -35,18 +36,21 @@ const recipient=createRecipientResolver(env.WHATSAPP_RECIPIENT_OVERRIDES);
 function equal(a,b){const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&timingSafeEqual(x,y);}
 function installation(req){return auth.count()===0&&!!env.ADMIN_TOKEN&&equal(req.headers.authorization,`Bearer ${env.ADMIN_TOKEN}`);}
 function sessionToken(req){return (req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`${cookieName}=`))?.slice(cookieName.length+1)||'';}
-function sessionCookie(res,token){res.setHeader('Set-Cookie',`${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/; ${secureCookie?'Secure; ':''}Max-Age=${token?43200:0}`);}
+function sessionCookie(res,token,expiresAt=0){const age=token?Math.max(0,Math.floor((expiresAt-Date.now())/1000)):0;res.setHeader('Set-Cookie',`${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/; ${secureCookie?'Secure; ':''}Max-Age=${age}`);}
 function sameOrigin(req){const allowed=env.PANEL_ORIGIN?[new URL(panelOrigin).host]:[`127.0.0.1:${port}`,`localhost:${port}`,`[::1]:${port}`];if(!allowed.includes(req.headers.host))throw authError('Origen del panel inválido.',403);if(req.method!=='GET'&&req.method!=='HEAD'){const origin=secureCookie?panelOrigin:`http://${req.headers.host}`;if(req.headers.origin!==origin||req.headers['sec-fetch-site']==='cross-site')throw authError('Solicitud de otro sitio bloqueada.',403);}}
-async function body(req){let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>65536)throw authError('Solicitud demasiado grande.',413);chunks.push(c);}return Buffer.concat(chunks);}
-function parseJSON(raw){try{return JSON.parse(raw);}catch{throw authError('Solicitud JSON inválida.');}}
+async function body(req){if(Number(req.headers['content-length'])>65536){req.resume();throw authError('Solicitud demasiado grande.',413);}let chunks=[],size=0;for await(const c of req){size+=c.length;if(size>65536)throw authError('Solicitud demasiado grande.',413);chunks.push(c);}return Buffer.concat(chunks);}
+const parseJSON=parseObject;
 function json(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));}
 const limits=new Map();
 const captchaImages=new Map();
-function rate(key){const now=Date.now();let r=limits.get(key);if(!r||now-r.at>60000) r={at:now,n:0};r.n++;limits.set(key,r);return r.n<=60;}
+function rate(key){const now=Date.now();let r=limits.get(key);if(!r&&limits.size>=10000)return false;if(!r||now-r.at>60000) r={at:now,n:0};r.n++;limits.set(key,r);return r.n<=60;}
 setInterval(()=>{for(const [key,value] of limits)if(Date.now()-value.at>60000)limits.delete(key);for(const [key,value] of captchaImages)if(Date.now()>value.expires)captchaImages.delete(key);auth.clean();},60000).unref();
 const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  res.setHeader('Cache-Control','no-store');res.setHeader('X-Frame-Options','DENY');
+  res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+  if(secureCookie)res.setHeader('Strict-Transport-Security','max-age=31536000');
   try {
     const url=new URL(req.url,'http://localhost');
     if(req.method==='GET'&&url.pathname==='/webhook') {
@@ -55,27 +59,21 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&url.pathname==='/webhook') {
       if(!waEnabled) return json(res,503,{error:'WhatsApp no configurado.'});
+      if(typeof req.headers['x-hub-signature-256']!=='string'||!/^sha256=[a-f0-9]{64}$/.test(req.headers['x-hub-signature-256'])){req.resume();return json(res,401,{error:'Firma inválida.'});}
+      if(!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||'')){req.resume();throw authError('Usá el formato application/json.',415);}
       const raw=await body(req),sig=`sha256=${createHmac('sha256',env.META_APP_SECRET).update(raw).digest('hex')}`;
       if(!equal(req.headers['x-hub-signature-256'],sig)) return json(res,401,{error:'Firma inválida.'});
-      const event=parseJSON(raw);
-      for(const entry of event.entry||[]) for(const change of entry.changes||[]) {
-        const value=change.value||{};
-        if(value.metadata?.phone_number_id!==env.WHATSAPP_PHONE_ID) continue;
-        for(const status of value.statuses||[]) recordDelivery(engine,status);
-        for(const message of value.messages||[]) {
-          if(typeof message.id!=='string'||!/^\d{10,15}$/.test(message.from)) continue;
-          if(engine.db.prepare('SELECT 1 FROM webhooks WHERE id=?').get(message.id)) continue;
-          const session=`wa:${message.from}`;
-          conversations.receive(message,session);
-        }
-      }
+      const event=webhookEvents(parseJSON(raw),env.WHATSAPP_PHONE_ID);
+      for(const status of event.statuses)recordDelivery(engine,status);
+      for(const message of event.messages)conversations.receive(message,`wa:${message.from}`);
       void conversations.drain().then(()=>void flush());
       return json(res,200,{ok:true});
     }
     if(!rate(req.socket.remoteAddress)) return json(res,429,{error:'Demasiadas solicitudes. Esperá un minuto.'});
     sameOrigin(req);
+    if(req.method==='POST'&&!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||'')){req.resume();throw authError('Usá el formato application/json.',415);}
     const ip=req.socket.remoteAddress,sessionKey=sessionToken(req),access=auth.current(sessionKey);
-    if(req.method==='GET'&&url.pathname==='/api/auth/status')return json(res,200,{setup:auth.count()===0,user:access?.user||null,csrf:access?.csrf||null});
+    if(req.method==='GET'&&url.pathname==='/api/auth/status'){const restored=access?auth.activity(sessionKey):null;if(restored)sessionCookie(res,sessionKey,restored.expiresAt);return json(res,200,{setup:auth.count()===0,user:restored?.user||null,csrf:restored?.csrf||null});}
     if(req.method==='GET'&&url.pathname==='/api/auth/captcha'){const challenge=auth.captcha(ip);captchaImages.set(challenge.id,{svg:challenge.svg,ip,expires:Date.now()+300000});return json(res,200,{id:challenge.id,image:`/api/auth/captcha-image?id=${challenge.id}`});}
     if(req.method==='GET'&&url.pathname==='/api/auth/captcha-image'){
       const challenge=captchaImages.get(url.searchParams.get('id'));if(!challenge||challenge.ip!==ip||challenge.expires<Date.now())return json(res,404,{error:'Código vencido.'});res.writeHead(200,{'Content-Type':'image/svg+xml','Cache-Control':'no-store'});return res.end(challenge.svg);
@@ -83,11 +81,12 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&url.pathname==='/api/auth/invitation')return json(res,200,auth.invitation(url.searchParams.get('token')));
     if(req.method==='POST'&&['/api/auth/login','/api/auth/setup','/api/auth/accept'].includes(url.pathname)){
       if(url.pathname==='/api/auth/setup'&&!installation(req))throw authError('Usá la clave privada de instalación para crear la primera cuenta.',403);
-      const data=parseJSON(await body(req)),result=await auth[url.pathname.split('/').at(-1)](data,ip);sessionCookie(res,result.token);return json(res,200,{user:result.user,csrf:result.csrf});
+      const data=parseJSON(await body(req)),result=await auth[url.pathname.split('/').at(-1)](data,ip);sessionCookie(res,result.token,result.expiresAt);return json(res,200,{user:result.user,csrf:result.csrf});
     }
     if(url.pathname.startsWith('/api/')){if(!access)return json(res,401,{error:'Ingresá con tu cuenta. La sesión pudo haber vencido o haberse abierto en otro dispositivo.'});if(req.method!=='GET'&&!equal(req.headers['x-csrf-token'],access.csrf))throw authError('La sesión cambió. Recargá el panel.',403);}
     if(req.method==='POST'&&url.pathname==='/api/auth/logout'){auth.logout(sessionKey);sessionCookie(res,'');return json(res,200,{ok:true});}
-    if(req.method==='POST'&&url.pathname==='/api/auth/activity'){auth.activity(sessionKey);return json(res,200,{ok:true});}
+    if(req.method==='POST'&&url.pathname==='/api/auth/activity'){const renewed=auth.activity(sessionKey);sessionCookie(res,sessionKey,renewed.expiresAt);return json(res,200,{ok:true});}
+    if(req.method==='POST'&&url.pathname==='/api/auth/password'){const result=await auth.changePassword(sessionKey,parseJSON(await body(req)),ip);sessionCookie(res,result.token,result.expiresAt);return json(res,200,{user:result.user,csrf:result.csrf});}
     if(req.method==='GET'&&url.pathname==='/api/accounts')return json(res,200,auth.list(access.user));
     if(req.method==='POST'&&url.pathname==='/api/accounts/invite')return json(res,200,auth.invite(access.user,parseJSON(await body(req))));
     if(req.method==='POST'&&url.pathname==='/api/accounts/cancel'){auth.revokeInvite(access.user,parseJSON(await body(req)).email);return json(res,200,{ok:true});}
@@ -105,9 +104,9 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&url.pathname==='/api/config') {
       const next=validateConfig(parseJSON(await body(req)));
       const upcoming=engine.query("SELECT * FROM appointments WHERE status='confirmed' AND start>?",new Date().toISOString());
-      if(upcoming.some(a=>!next.professionals.includes(a.professional)||!next.services.some(s=>s.id===a.service))) throw Error('No podés eliminar profesionales o servicios con turnos próximos.');
+      if(upcoming.some(a=>!next.professionals.includes(a.professional)||!next.services.some(s=>s.id===a.service))) throw authError('No podés eliminar profesionales o servicios con turnos próximos.');
       const drafts=engine.query("SELECT state FROM sessions WHERE json_extract(state,'$.step') IS NOT NULL").map(s=>JSON.parse(s.state));
-      if(drafts.some(s=>s.service&&!next.services.some(service=>service.id===s.service))) throw Error('Hay una conversación reservando un servicio que intentás quitar. Conservá ese servicio hasta que termine la reserva.');
+      if(drafts.some(s=>s.service&&!next.services.some(service=>service.id===s.service))) throw authError('Hay una conversación reservando un servicio que intentás quitar. Conservá ese servicio hasta que termine la reserva.');
       writeFileSync(`${root}business.json.tmp`,JSON.stringify(next,null,2));renameSync(`${root}business.json.tmp`,`${root}business.json`);config=next;configUpdatedAt=statSync(`${root}business.json`).mtime.toISOString();return json(res,200,{ok:true,config,updatedAt:configUpdatedAt});
     }
     if(req.method==='POST'&&url.pathname==='/api/human') {
@@ -119,8 +118,9 @@ const server=http.createServer(async(req,res)=>{
     const files={'/':'index.html','/app.js':'app.js','/accounts.js':'accounts.js','/settings.js':'settings.js','/bot-info.js':'../bot-info.mjs','/style.css':'style.css','/favicon.svg':'favicon.svg'};
     if(req.method==='GET'&&files[url.pathname]){res.writeHead(200,{'Content-Type':url.pathname.endsWith('.svg')?'image/svg+xml':url.pathname.endsWith('.css')?'text/css':url.pathname.endsWith('.js')?'text/javascript':'text/html; charset=utf-8','Cache-Control':'no-store'});return res.end(readFileSync(`${root}public/${files[url.pathname]}`));}
     json(res,404,{error:'Ruta no encontrada.'});
-  } catch(e){if(!e.status)console.error('Solicitud fallida:',e.message);json(res,e.status||400,{error:e.message});}
+  } catch(e){if(!e.status)console.error('Solicitud fallida:',e.code||e.name);json(res,e.status||500,{error:e.status?e.message:'No se pudo completar la solicitud. Intentá nuevamente.'});}
 });
+server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;server.maxRequestsPerSocket=200;
 let flushing=false;
 async function flush(){
   if(flushing||!waEnabled)return;flushing=true;

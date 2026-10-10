@@ -27,8 +27,8 @@ async function api(path,data) {
 function show(view) {
   if(view==='accounts')void accountAccess.refreshAccounts();
   document.querySelectorAll('.view').forEach(n=>n.classList.toggle('hidden',n.id!==view));document.querySelectorAll('.nav').forEach(n=>{n.classList.toggle('active',n.dataset.view===view);n.setAttribute('aria-current',n.dataset.view===view?'page':'false');});
-  $('title').textContent={inbox:'Conversaciones',appointments:'Agenda de turnos',knowledge:'Respuestas del bot',settings:settingsEditor.isEditing()?'Editar información del bot':'Información del bot',accounts:'Cuentas del equipo'}[view];
-  $('subtitle').textContent={inbox:'Seguí la atención de tus pacientes en WhatsApp.',appointments:'Reservas, cambios y confirmaciones de tus pacientes.',knowledge:'Información que la clínica comparte por WhatsApp.',settings:settingsEditor.isEditing()?'Modificá los datos y guardá los cambios.':'Datos guardados que el asistente usa en WhatsApp.',accounts:'Administrá los accesos al panel del negocio.'}[view];
+  $('title').textContent={inbox:'Conversaciones',appointments:'Agenda de turnos',knowledge:'Respuestas del bot',settings:settingsEditor.isEditing()?'Editar información del bot':'Información del bot',accounts:'Cuentas del equipo',security:'Mi seguridad'}[view];
+  $('subtitle').textContent={inbox:'Seguí la atención de tus pacientes en WhatsApp.',appointments:'Reservas, cambios y confirmaciones de tus pacientes.',knowledge:'Información que la clínica comparte por WhatsApp.',settings:settingsEditor.isEditing()?'Modificá los datos y guardá los cambios.':'Datos guardados que el asistente usa en WhatsApp.',accounts:'Administrá los accesos al panel del negocio.',security:'Administrá tu contraseña y la duración de tu sesión.'}[view];
 }
 function renderList() {
   if(!dashboard)return;const query=$('search').value.trim().toLocaleLowerCase('es');

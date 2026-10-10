@@ -3,13 +3,15 @@ import {pathToFileURL} from 'node:url';
 
 // El túnel de prueba apunta a este puerto: el panel no se publica.
 export function createWebhookGateway(targetPort = 3000) {
-  return http.createServer((req, res) => {
-    const path = new URL(req.url, 'http://localhost');
+  const gateway=http.createServer((req, res) => {
+    let path;
+    try{path=new URL(req.url,'http://localhost');}catch{req.resume();res.writeHead(400);return res.end('Solicitud inválida.');}
     if (path.pathname !== '/webhook' || !['GET', 'POST'].includes(req.method)) {
       res.writeHead(404, {'Content-Type':'text/plain', 'Cache-Control':'no-store'});
       req.resume();
       return res.end('Ruta no disponible.');
     }
+    if(Number(req.headers['content-length'])>65536){req.resume();res.writeHead(413);return res.end('Solicitud demasiado grande.');}
     let size = 0;
     const chunks = [];
     req.on('data', chunk => {
@@ -47,6 +49,8 @@ export function createWebhookGateway(targetPort = 3000) {
     });
     req.on('error', () => res.destroy());
   });
+  gateway.requestTimeout=20000;gateway.headersTimeout=10000;gateway.keepAliveTimeout=5000;gateway.maxRequestsPerSocket=200;
+  return gateway;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

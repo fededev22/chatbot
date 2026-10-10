@@ -1,3 +1,4 @@
+import {authError} from './auth.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {welcomeText,botText,defaultFallback,faqAnswer,faqSources,serviceDetails,serviceCatalog} from './bot-info.mjs';
@@ -5,16 +6,16 @@ import {interpret} from './language.mjs';
 export const normalize = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 export function safeMessage(text) {return /\b(dolor|duele|sangrado|hinchazon|urgencia|medicamento|diagnostico|fiebre|historia clinica)\b/.test(normalize(text))?'[Consulta clínica: contenido omitido. Contactar al paciente por un canal adecuado.]':text;}
 export function validateConfig(c) {
-  if (!c || typeof c.name !== 'string' || !c.name.trim() || c.timezone !== 'America/Argentina/Buenos_Aires' || c.utcOffset !== '-03:00') throw Error('Usá nombre y zona horaria Argentina (-03:00).');
-  if(c.address!==undefined&&(typeof c.address!=='string'||c.address.length>1000)) throw Error('Dirección inválida (máximo 1000 caracteres).');
-  if(c.bot!==undefined&&(!c.bot||typeof c.bot!=='object'||Array.isArray(c.bot)||['welcome','fallback'].some(k=>c.bot[k]!==undefined&&(typeof c.bot[k]!=='string'||!c.bot[k].trim()||c.bot[k].length>2000)))) throw Error('Los mensajes del bot deben tener entre 1 y 2000 caracteres.');
-  if (!Array.isArray(c.professionals) || !c.professionals.length || new Set(c.professionals).size !== c.professionals.length || c.professionals.some(x => typeof x !== 'string' || !x.trim())) throw Error('Configurá profesionales únicos.');
-  if (!Array.isArray(c.services) || !c.services.length || new Set(c.services.map(s => s.id)).size !== c.services.length || c.services.some(s => !/^[a-z0-9_-]+$/.test(s.id) || typeof s.name !== 'string' || !s.name.trim() || !Number.isInteger(s.minutes) || s.minutes < 15 || s.minutes > 240 || typeof s.price !== 'string')) throw Error('Servicios inválidos. Duración: 15 a 240 minutos.');
-  if(c.services.some(s=>s.description!==undefined&&(typeof s.description!=='string'||s.description.length>2000)))throw Error('La descripción de cada servicio debe tener hasta 2000 caracteres.');
-  if(c.services.some(s=>s.name.length>120||s.price.length>300))throw Error('Usá hasta 120 caracteres para el nombre del servicio y 300 para su precio.');
-  if (!Number.isInteger(c.bufferMinutes) || c.bufferMinutes < 0 || c.bufferMinutes > 120) throw Error('Descanso inválido.');
-  if (!c.hours || !Object.keys(c.hours).length || Object.entries(c.hours).some(([d,h]) => !/^[0-6]$/.test(d) || !Array.isArray(h) || h.length !== 2 || h.some(n => !Number.isFinite(n)||!Number.isInteger(n*4)) || h[0] < 0 || h[1] > 24 || h[0] >= h[1])) throw Error('Horario inválido. Elegí apertura y cierre en intervalos de 15 minutos.');
-  if (!Array.isArray(c.faqs) || c.faqs.some(f => typeof f.question !== 'string' || !f.question.trim() || typeof f.answer !== 'string' || f.answer.length>2000 || !Array.isArray(f.keywords) || !f.keywords.length || f.keywords.some(k => typeof k !== 'string' || !k.trim()) || f.source!==undefined&&!Object.hasOwn(faqSources,f.source))) throw Error('Revisá las preguntas: completá la pregunta, palabras clave, origen válido y respuesta de hasta 2000 caracteres.');
+  if (!c || typeof c.name !== 'string' || !c.name.trim() || c.name.length>200 || c.timezone !== 'America/Argentina/Buenos_Aires' || c.utcOffset !== '-03:00') throw authError('Usá nombre y zona horaria Argentina (-03:00).');
+  if(c.address!==undefined&&(typeof c.address!=='string'||c.address.length>1000)) throw authError('Dirección inválida (máximo 1000 caracteres).');
+  if(c.bot!==undefined&&(!c.bot||typeof c.bot!=='object'||Array.isArray(c.bot)||['welcome','fallback'].some(k=>c.bot[k]!==undefined&&(typeof c.bot[k]!=='string'||!c.bot[k].trim()||c.bot[k].length>2000)))) throw authError('Los mensajes del bot deben tener entre 1 y 2000 caracteres.');
+  if (!Array.isArray(c.professionals) || !c.professionals.length || c.professionals.length>30 || new Set(c.professionals).size !== c.professionals.length || c.professionals.some(x => typeof x !== 'string' || !x.trim() || x.length>100)) throw authError('Configurá profesionales únicos.');
+  if (!Array.isArray(c.services) || !c.services.length || c.services.length>50 || c.services.some(s=>!s||typeof s!=='object'||Array.isArray(s)) || new Set(c.services.map(s => s.id)).size !== c.services.length || c.services.some(s => typeof s.id!=='string'||s.id.length>50||!/^[a-z0-9_-]+$/.test(s.id) || typeof s.name !== 'string' || !s.name.trim() || !Number.isInteger(s.minutes) || s.minutes < 15 || s.minutes > 240 || typeof s.price !== 'string')) throw authError('Servicios inválidos. Duración: 15 a 240 minutos.');
+  if(c.services.some(s=>s.description!==undefined&&(typeof s.description!=='string'||s.description.length>2000)))throw authError('La descripción de cada servicio debe tener hasta 2000 caracteres.');
+  if(c.services.some(s=>s.name.length>120||s.price.length>300))throw authError('Usá hasta 120 caracteres para el nombre del servicio y 300 para su precio.');
+  if (!Number.isInteger(c.bufferMinutes) || c.bufferMinutes < 0 || c.bufferMinutes > 120) throw authError('Descanso inválido.');
+  if (!c.hours || !Object.keys(c.hours).length || Object.entries(c.hours).some(([d,h]) => !/^[0-6]$/.test(d) || !Array.isArray(h) || h.length !== 2 || h.some(n => !Number.isFinite(n)||!Number.isInteger(n*4)) || h[0] < 0 || h[1] > 24 || h[0] >= h[1])) throw authError('Horario inválido. Elegí apertura y cierre en intervalos de 15 minutos.');
+  if (!Array.isArray(c.faqs) || c.faqs.length>100 || c.faqs.some(f=>!f||typeof f!=='object'||Array.isArray(f)) || c.faqs.some(f => typeof f.question !== 'string' || !f.question.trim() || f.question.length>300 || typeof f.answer !== 'string' || f.answer.length>2000 || !Array.isArray(f.keywords) || !f.keywords.length || f.keywords.length>20 || f.keywords.some(k => typeof k !== 'string' || !k.trim() || k.length>100) || f.source!==undefined&&!Object.hasOwn(faqSources,f.source))) throw authError('Revisá las preguntas: completá la pregunta, palabras clave, origen válido y respuesta de hasta 2000 caracteres.');
   return c;
 }
 export function createEngine(path, getConfig, clock = () => new Date()) {
@@ -69,7 +70,7 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
   }
   const owned = (session,id) => db.prepare("SELECT * FROM appointments WHERE id=? AND session=? AND status='confirmed'").get(id,session);
   function handle(session,text,channel='demo',{recordUser=true}={}) {
-    if (typeof text !== 'string' || !text.trim() || text.length>2000) throw Error('Mensaje inválido (máximo 2000 caracteres).');
+    if (typeof text !== 'string' || !text.trim() || text.length>2000) throw authError('Mensaje inválido (máximo 2000 caracteres).');
     let s=state(session), n=normalize(text), c=getConfig(), intent='faq', reply='', choices=[];
     if(['cancel_id','reschedule_id'].includes(s.step)&&!upcoming(session).length)s={};
     const message=interpret(text,c,s,clock());
@@ -177,9 +178,9 @@ export function createEngine(path, getConfig, clock = () => new Date()) {
         else {
           db.exec('SAVEPOINT booking');
           try {
-            if(s.old && !owned(session,s.old)) throw Error('El turno original ya no está vigente.');
+            if(s.old && !owned(session,s.old)) throw authError('El turno original ya no está vigente.');
             const slot=slots(s.service,s.day).find(x=>x.time===s.time);
-            if(!slot) throw Error('El horario se ocupó. Tu turno original sigue intacto. Elegí otro horario.');
+            if(!slot) throw authError('El horario se ocupó. Tu turno original sigue intacto. Elegí otro horario.');
             const id=randomUUID().slice(0,8);
             run('INSERT INTO appointments(id,session,name,phone,service,professional,start,end,busy_end,status,consent) VALUES(?,?,?,?,?,?,?,?,?,?,?)',id,session,s.name,s.phone,s.service,slot.professional,slot.start,slot.end,slot.busy,'confirmed',s.consent?1:0);
             if(s.old) run("UPDATE appointments SET status='rescheduled' WHERE id=? AND session=?",s.old,session);

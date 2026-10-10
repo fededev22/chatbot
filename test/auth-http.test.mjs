@@ -8,10 +8,11 @@ import {createServer} from 'node:net';
 import {spawn} from 'node:child_process';
 import {request as httpRequest} from 'node:http';
 const root=fileURLToPath(new URL('../',import.meta.url));
+function persistentCookie(response){const age=Number(/Max-Age=(\d+)/.exec(response.headers.get('set-cookie'))?.[1]);assert.ok(age>=2591990&&age<=2592000,`Cookie persistente con duración válida: ${age}`);}
 for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}: instalación, cookies, CSRF, permisos y sesión única`,async()=>{
   const directory=mkdtempSync(join(tmpdir(),'dental-auth-test-'));
   const socket=createServer();await new Promise((ok,bad)=>socket.once('error',bad).listen(0,'127.0.0.1',ok));const port=socket.address().port;await new Promise(ok=>socket.close(ok));
-  for(const file of ['server.mjs','auth.mjs','core.mjs','language.mjs','ai.mjs','conversation-ai.mjs','supabase-memory.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
+  for(const file of ['server.mjs','auth.mjs','security.mjs','core.mjs','language.mjs','ai.mjs','conversation-ai.mjs','supabase-memory.mjs','reception.mjs','connection.mjs','whatsapp.mjs','bot-info.mjs','business.json'])copyFileSync(join(root,file),join(directory,file));
   cpSync(join(root,'public'),join(directory,'public'),{recursive:true});
   const origin=`${secure?'https':'http'}://127.0.0.1:${port}`;
   const child=spawn(process.execPath,[join(directory,'server.mjs')],{cwd:directory,env:{...process.env,HOST:'127.0.0.1',PORT:String(port),PANEL_ORIGIN:secure?origin:'',ADMIN_TOKEN:'installation-test-only',WHATSAPP_TOKEN:'',WHATSAPP_PHONE_ID:'',META_APP_SECRET:'',WEBHOOK_VERIFY_TOKEN:'',SUPABASE_URL:'',SUPABASE_SECRET_KEY:''},stdio:['ignore','pipe','pipe']});
@@ -29,7 +30,9 @@ for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}:
     const malformed=await fetch(base+'/api/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{"password":"private-test-value'});assert.equal(malformed.status,400);assert.deepEqual(await malformed.json(),{error:'Solicitud JSON inválida.'});
     const fields={email:'owner@example.test',phone:'+5491112345678',password};
     const setup=await call('/api/auth/setup',{...fields,...await captcha()},{Authorization:'Bearer installation-test-only'});assert.equal(setup.status,200);assert.match(setup.headers.get('set-cookie'),/HttpOnly; SameSite=Strict/);assert.equal(setup.headers.get('set-cookie').includes('Secure;'),secure);if(secure)assert.ok(setup.headers.get('set-cookie').startsWith('__Host-dental_session='));const owner=await setup.json();installSession(setup,owner);
-    assert.equal((await call('/api/dashboard')).status,200);
+    const opened=await call('/api/dashboard');assert.equal(opened.status,200);assert.equal(opened.headers.get('x-frame-options'),'DENY');assert.match(opened.headers.get('content-security-policy'),/object-src 'none'/);assert.equal(opened.headers.has('strict-transport-security'),secure);
+    persistentCookie(setup);
+    const restored=await call('/api/auth/status');persistentCookie(restored);assert.equal((await restored.json()).user.email,fields.email);
     assert.equal((await call('/api/config',{}, {'X-CSRF-Token':'incorrect'})).status,403);
     const edited=(await (await call('/api/dashboard')).json()).config;edited.services[0].description='Descripción editable de prueba. Incluye la información definida por el negocio.';edited.services[0].price='';
     assert.equal((await call('/api/config',edited)).status,200);
@@ -47,6 +50,8 @@ for(const secure of [false,true])test(`HTTP ${secure?'con proxy HTTPS':'local'}:
     const oldCookie=cookie,oldCsrf=csrf;cookie='';csrf='';const accepted=await call('/api/auth/accept',{invite:invite.token,password,...await captcha()});assert.equal(accepted.status,200);installSession(accepted,await accepted.json());assert.equal((await call('/api/accounts')).status,403);assert.equal((await call('/api/accounts/invite',{email:'third@example.test',phone:'+5491112345680'})).status,403);
     assert.equal((await call('/api/ai',aiConfig)).status,404);assert.ok(!(await (await call('/api/ai')).text()).includes(aiConfig.key));
     const login=await call('/api/auth/login',{...fields,...await captcha()});assert.equal(login.status,200);const newOwner=await login.json();cookie=oldCookie;csrf=oldCsrf;assert.equal((await call('/api/dashboard')).status,401);installSession(login,newOwner);
-    assert.equal((await call('/api/auth/activity',{})).status,200);assert.equal((await call('/api/auth/logout',{})).status,200);assert.equal((await call('/api/dashboard')).status,401);
+    const active=await call('/api/auth/activity',{});assert.equal(active.status,200);persistentCookie(active);
+    const changed=await call('/api/auth/password',{currentPassword:password,password:'Otra frase privada para mi cuenta'});assert.equal(changed.status,200);const changedSession=await changed.json();assert.notEqual(changedSession.csrf,csrf);installSession(changed,changedSession);
+    assert.equal((await call('/api/auth/logout',{})).status,200);assert.equal((await call('/api/dashboard')).status,401);
   }finally{child.kill();await exit;const absolute=resolve(directory);assert.equal(dirname(absolute),resolve(tmpdir()));assert.ok(basename(absolute).startsWith('dental-auth-test-'));rmSync(absolute,{recursive:true,force:true});}
 });

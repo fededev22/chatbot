@@ -1,27 +1,41 @@
 import {safeMessage,normalize,formatDate} from './core.mjs';
 import {faqAnswer,welcomeText} from './bot-info.mjs';
 import {providers} from './ai.mjs';
+import {authError} from './auth.mjs';
 const contextPolicy='clinic-reception-v3';
+const credentialPattern=/\b(?:nvapi-[A-Za-z0-9_-]{20,}|sk-(?:or-v1-|proj-)?[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{20,}|EA[A-Za-z0-9]{35,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sb_secret_[A-Za-z0-9_-]{20,})\b|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/;
+export const botLimits=Object.freeze({minute:20,day:200,globalDay:2000,pendingPerSender:10,pending:200,outbox:500});
 
 // Durable inbox: acknowledge Meta before inference; never await with SQLite locked.
-export function createWhatsAppConversations(engine,getConfig,settings,{mode='off',trialRecipients=[],request=fetch,clock=()=>new Date(),memory=null}={}) {
+export function createWhatsAppConversations(engine,getConfig,settings,{mode='off',trialRecipients=[],request=fetch,clock=()=>new Date(),memory=null,limits=botLimits}={}) {
   engine.db.exec(`CREATE TABLE IF NOT EXISTS conversation_jobs (
     id TEXT PRIMARY KEY, session TEXT NOT NULL, user_id INTEGER NOT NULL,
     kind TEXT NOT NULL, status TEXT NOT NULL, result TEXT, message_id INTEGER,
     outbox_id TEXT, ai_used INTEGER DEFAULT 0, error TEXT);
     CREATE TABLE IF NOT EXISTS ai_context (
     user_id INTEGER PRIMARY KEY, session TEXT NOT NULL, question TEXT NOT NULL, reply TEXT NOT NULL,
-    policy TEXT NOT NULL DEFAULT 'legacy');`);
+    policy TEXT NOT NULL DEFAULT 'legacy');
+    CREATE TABLE IF NOT EXISTS bot_limits(key TEXT PRIMARY KEY,started INTEGER NOT NULL,count INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS conversation_jobs_pending ON conversation_jobs(session) WHERE status IN ('pending','working');
+    CREATE INDEX IF NOT EXISTS outbox_pending ON outbox(status) WHERE status IN ('pending','generating');`);
   if(!engine.query('PRAGMA table_info(ai_context)').some(column=>column.name==='policy'))engine.db.exec("ALTER TABLE ai_context ADD COLUMN policy TEXT NOT NULL DEFAULT 'legacy'");
   let draining=null;
   function receive(message,session) {
     if(!/^wa:\d{10,15}$/.test(session))throw Error('Remitente inválido.');
+    if(!message||typeof message.id!=='string'||!message.id||message.id.length>256||message.type==='text'&&typeof message.text?.body!=='string')return false;
     engine.db.exec('BEGIN IMMEDIATE');
     try {
       if(engine.query('SELECT 1 FROM webhooks WHERE id=?',message.id).length){engine.db.exec('COMMIT');return false;}
+      const now=clock().getTime(),day=86400000;
+      engine.run('DELETE FROM bot_limits WHERE started<=?',now-day);
+      const windows=[{key:`minute:${session}`,span:60000,max:limits.minute},{key:`day:${session}`,span:day,max:limits.day},{key:'global',span:day,max:limits.globalDay}];
+      if(windows.some(w=>{const row=engine.query('SELECT started,count FROM bot_limits WHERE key=?',w.key)[0];return row&&row.started>now-w.span&&row.count>=w.max;})){engine.db.exec('COMMIT');return false;}
+      const pending=engine.query("SELECT count(*) n,sum(CASE WHEN session=? THEN 1 ELSE 0 END) own FROM conversation_jobs WHERE status IN ('pending','working')",session)[0];
+      if(pending.n>=limits.pending||pending.own>=limits.pendingPerSender||engine.query("SELECT count(*) n FROM outbox WHERE status IN ('pending','generating')")[0].n>=limits.outbox)throw authError('El bot está ocupado. WhatsApp volverá a intentar entregar el mensaje.',503);
+      for(const w of windows)engine.run('INSERT INTO bot_limits VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET started=CASE WHEN started<=? THEN excluded.started ELSE started END,count=CASE WHEN started<=? THEN 1 ELSE count+1 END',w.key,now,now-w.span,now-w.span);
       const raw=message.type==='text'?message.text?.body||'':'',clinical=safeMessage(raw)!==raw;
-      const kind=message.type!=='text'?'media':clinical?'clinical':!raw.trim()||raw.length>2000?'invalid':'text';
-      const text=kind==='media'?'[Archivo no procesado]':kind==='invalid'?'[Mensaje vacío o demasiado largo]':safeMessage(raw);
+      const kind=message.type!=='text'?'media':credentialPattern.test(raw)?'credential':clinical?'clinical':!raw.trim()||raw.length>2000?'invalid':'text';
+      const text=kind==='credential'?'[Credencial omitida]':kind==='media'?'[Archivo no procesado]':kind==='invalid'?'[Mensaje vacío o demasiado largo]':safeMessage(raw);
       engine.run('INSERT INTO webhooks VALUES(?)',message.id);
       const userId=Number(engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',session,'user',text,clock().toISOString()).lastInsertRowid);
       const state=engine.state(session);engine.save(session,state);engine.remember(session,state);
@@ -39,7 +53,7 @@ export function createWhatsAppConversations(engine,getConfig,settings,{mode='off
       let answer;
       if(['text','clinical'].includes(job.kind))answer=engine.handle(job.session,job.kind==='clinical'?'urgencia':input,'whatsapp',{recordUser:false});
       else {
-        answer={reply:job.kind==='media'?'Por ahora puedo conversar por texto. Contame tu consulta por escrito y te ayudo.':'Mandame una consulta de hasta 2000 caracteres y te ayudo.',data:before,choices:[]};
+        answer={reply:job.kind==='credential'?'No compartas claves ni credenciales acá. Contame tu consulta sin esos datos.':job.kind==='media'?'Por ahora puedo conversar por texto. Contame tu consulta por escrito y te ayudo.':'Mandame una consulta de hasta 2000 caracteres y te ayudo.',data:before,choices:[]};
         engine.run('INSERT INTO messages(session,role,text,at) VALUES(?,?,?,?)',job.session,'bot',answer.reply,clock().toISOString());
       }
       const config=getConfig();

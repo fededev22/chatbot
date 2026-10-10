@@ -31,4 +31,6 @@ test('el puerto público reenvía el webhook intacto y rechaza acceso al panel',
   assert.equal(observed[1].signature, 'sha256=test');
   assert.equal((await fetch(base + '/webhook', {method:'POST',body:'x'.repeat(65537)})).status, 413);
   assert.equal(observed.length, 2);
+  const malformed=await new Promise((resolve,reject)=>{const req=http.request(base,{path:'http://[',headers:{connection:'close'}},res=>{res.resume();resolve(res.statusCode);});req.once('error',reject);req.end();});
+  assert.equal(malformed,400);assert.equal((await fetch(base+'/webhook')).status,200,'un URL inválido no derriba el gateway');
 });
